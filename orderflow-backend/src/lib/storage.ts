@@ -1,0 +1,39 @@
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
+import { config } from "../config";
+
+/**
+ * Local-disk storage with an S3-shaped interface. In production, replace the
+ * bodies of save/read with S3 PutObject / presigned GetObject calls — callers
+ * only ever see opaque storage keys, so nothing else changes.
+ */
+
+const root = path.resolve(config.uploadDir);
+
+const safePath = (key: string) => {
+  const p = path.resolve(root, key);
+  if (!p.startsWith(root + path.sep)) throw new Error("Invalid storage key");
+  return p;
+};
+
+export const saveReceipt = async (invoiceId: string, ext: string, data: Buffer): Promise<string> => {
+  const key = path.join(invoiceId, `${crypto.randomUUID()}.${ext}`);
+  const full = safePath(key);
+  await fs.promises.mkdir(path.dirname(full), { recursive: true });
+  await fs.promises.writeFile(full, data);
+  return key;
+};
+
+export const readReceipt = async (key: string): Promise<Buffer> => fs.promises.readFile(safePath(key));
+
+/** Magic-byte sniffing — trust file contents, not the client's Content-Type. */
+export const sniffFileType = (buf: Buffer): { ext: string; mime: string } | null => {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)
+    return { ext: "jpg", mime: "image/jpeg" };
+  if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+    return { ext: "png", mime: "image/png" };
+  if (buf.length > 4 && buf.subarray(0, 5).toString("latin1") === "%PDF-")
+    return { ext: "pdf", mime: "application/pdf" };
+  return null;
+};
