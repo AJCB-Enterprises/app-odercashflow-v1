@@ -53,6 +53,7 @@ export const api = {
     request<T>(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }),
   patch: <T = any>(path: string, data: object) =>
     request<T>(path, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }),
+  delete: <T = any>(path: string) => request<T>(path, { method: "DELETE" }),
   /** Multipart upload for the public receipt endpoint (no auth header). */
   upload: <T = any>(path: string, file: File) => {
     const form = new FormData();

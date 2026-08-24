@@ -128,3 +128,17 @@ clientsRouter.patch("/:id", requireAdmin, async (req, res) => {
   await audit(req.user!.id, "client.updated", "client", row.id, b);
   res.json(row);
 });
+
+/** DELETE /clients/:id — admin removes a client with no order/invoice history. */
+clientsRouter.delete("/:id", requireAdmin, async (req, res) => {
+  try {
+    const row = await one("DELETE FROM clients WHERE id = $1 RETURNING id", [req.params.id]);
+    if (!row) return res.status(404).json({ error: "Client not found" });
+    await audit(req.user!.id, "client.deleted", "client", row.id);
+    res.status(204).end();
+  } catch (err: any) {
+    if (err?.code === "23503")
+      return res.status(409).json({ error: "Can't delete a client with existing orders or invoices" });
+    throw err;
+  }
+});

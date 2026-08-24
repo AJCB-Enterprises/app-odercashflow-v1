@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
-import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData } from "../../components";
+import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData, useToast } from "../../components";
 
 export function Directory() {
   const [q, setQ] = useState("");
@@ -63,19 +63,41 @@ export function Directory() {
 export function ClientDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const { data, error, loading } = useData<any>(() => api.get(`/clients/${id}`), [id]);
+  const [deleting, setDeleting] = useState(false);
 
   if (loading) return <Loading />;
   if (error || !data) return <ErrorBox msg={error || "Client not found"} />;
   const { client, orders, invoices, pending_invoices } = data;
 
+  const deleteClient = async () => {
+    if (!window.confirm(`Delete ${client.company_name}? This can't be undone.`)) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/clients/${client.id}`);
+      toast(`${client.company_name} deleted.`);
+      navigate("/admin/directory");
+    } catch (e: any) {
+      toast(e.message, true);
+      setDeleting(false);
+    }
+  };
+
   return (
     <>
       <button className="back" onClick={() => navigate("/admin/directory")}>← Back to directory</button>
-      <h1 className="page">{client.company_name}</h1>
-      <p className="pagesub">
-        {client.contact_name} · {client.email} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
-      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1 className="page">{client.company_name}</h1>
+          <p className="pagesub">
+            {client.contact_name} · {client.email} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
+          </p>
+        </div>
+        <button className="btn sm red" disabled={deleting} onClick={deleteClient}>
+          {deleting ? "Deleting…" : "Delete client"}
+        </button>
+      </div>
 
       <Card title="Pending invoices" hint="shown when reviewing this account" pad={false}>
         <table className="ledger">
