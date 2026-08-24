@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
-import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData, useToast } from "../../components";
+import { Card, EditClientForm, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData, useToast } from "../../components";
 
 export function Directory() {
   const [q, setQ] = useState("");
@@ -64,7 +64,10 @@ export function ClientDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const { data, error, loading } = useData<any>(() => api.get(`/clients/${id}`), [id]);
+  const { data, error, loading, reload } = useData<any>(() => api.get(`/clients/${id}`), [id]);
+  const { data: agents } = useData<any[]>(() => api.get("/agents"), []);
+  const [editing, setEditing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   if (loading) return <Loading />;
@@ -72,6 +75,7 @@ export function ClientDetail() {
   const { client, orders, invoices, pending_invoices } = data;
 
   const deleteClient = async () => {
+    setMenuOpen(false);
     if (!window.confirm(`Delete ${client.company_name}? This can't be undone.`)) return;
     setDeleting(true);
     try {
@@ -94,10 +98,28 @@ export function ClientDetail() {
             {client.contact_name} · {client.email} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
           </p>
         </div>
-        <button className="btn sm red" disabled={deleting} onClick={deleteClient}>
-          {deleting ? "Deleting…" : "Delete client"}
-        </button>
+        <div className="menu-wrap">
+          <button className="btn sm" disabled={deleting} onClick={() => { setEditing((s) => !s); setMenuOpen(false); }}>
+            {editing ? "Close edit" : "Edit client"}
+          </button>
+          <button className="btn sm menu-caret" aria-label="More client actions" disabled={deleting}
+            onClick={() => setMenuOpen((s) => !s)}>▾</button>
+          {menuOpen && (
+            <div className="menu">
+              <button className="red" onClick={deleteClient}>Delete client</button>
+            </div>
+          )}
+        </div>
       </div>
+
+      {editing && (
+        <EditClientForm
+          client={client}
+          agents={agents || []}
+          onDone={() => { setEditing(false); reload(); }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
 
       <Card title="Pending invoices" hint="shown when reviewing this account" pad={false}>
         <table className="ledger">

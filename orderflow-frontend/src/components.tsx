@@ -133,3 +133,72 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
     </Card>
   );
 }
+
+/* ---- edit client form (admin only, can reassign agent) ---- */
+export function EditClientForm({ client, agents, onDone, onCancel }: {
+  client: { id: string; company_name: string; contact_name: string; email: string; phone?: string; address?: string; agent_id?: string; notes?: string };
+  agents: { id: string; full_name: string }[];
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [companyName, setCompanyName] = useState(client.company_name);
+  const [contactName, setContactName] = useState(client.contact_name);
+  const [email, setEmail] = useState(client.email);
+  const [phone, setPhone] = useState(client.phone || "");
+  const [address, setAddress] = useState(client.address || "");
+  const [agentId, setAgentId] = useState(client.agent_id || "");
+  const [notes, setNotes] = useState(client.notes || "");
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.patch(`/clients/${client.id}`, {
+        company_name: companyName.trim(),
+        contact_name: contactName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        address: address.trim() || undefined,
+        notes: notes.trim() || undefined,
+        agent_id: agentId || null,
+      });
+      toast("Client details updated.");
+      onDone();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const valid = companyName.trim() && contactName.trim() && email.trim();
+
+  return (
+    <Card title="Edit client">
+      <label className="f" htmlFor="ecc">Company name</label>
+      <input id="ecc" className="f" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+      <label className="f" htmlFor="ecn">Contact name</label>
+      <input id="ecn" className="f" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+      <label className="f" htmlFor="ece">Email</label>
+      <input id="ece" className="f" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <label className="f" htmlFor="ecp">Phone</label>
+      <input id="ecp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <label className="f" htmlFor="eca">Address</label>
+      <input id="eca" className="f" value={address} onChange={(e) => setAddress(e.target.value)} />
+      <label className="f" htmlFor="ecg">Assign to agent</label>
+      <select id="ecg" className="f" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+        <option value="">Unassigned</option>
+        {agents.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+      </select>
+      <label className="f" htmlFor="ecm">Notes</label>
+      <textarea id="ecm" className="f" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <button className="btn" disabled={!valid || busy} onClick={submit}>
+          {busy ? "Saving…" : "Save changes"}
+        </button>
+        <button className="btn ghost" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </Card>
+  );
+}
