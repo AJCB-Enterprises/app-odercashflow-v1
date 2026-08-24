@@ -31,7 +31,7 @@ export default function Shell() {
         </Link>
         <div className="whoami">
           <span className="rolechip">{user.role}</span>
-          <span className="name">{user.full_name}</span>
+          <Link to="/account" className="name" style={{ textDecoration: "underline" }}>{user.full_name}</Link>
           <button className="btn sm ghost" style={{ borderColor: "#4A4F5C", color: "#C9CCD5" }} onClick={logout}>
             Sign out
           </button>

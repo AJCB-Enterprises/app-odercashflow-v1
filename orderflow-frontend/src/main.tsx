@@ -8,6 +8,7 @@ import Shell from "./Shell";
 import Login from "./pages/Login";
 import Upload from "./pages/Upload";
 import Notifications from "./pages/Notifications";
+import Account from "./pages/Account";
 import Dashboard from "./pages/admin/Dashboard";
 import { OrderList, OrderDetail } from "./pages/admin/Orders";
 import Receipts from "./pages/admin/Receipts";
@@ -35,6 +36,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route element={<Shell />}>
             <Route path="/" element={<Home />} />
             <Route path="/notifications" element={<Notifications />} />
+            <Route path="/account" element={<Account />} />
             <Route path="/admin/dashboard" element={<Dashboard />} />
             <Route path="/admin/orders" element={<OrderList />} />
             <Route path="/admin/orders/:id" element={<OrderDetail />} />

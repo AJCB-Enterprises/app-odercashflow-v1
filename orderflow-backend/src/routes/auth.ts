@@ -5,6 +5,8 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { one } from "../db";
 import { config } from "../config";
+import { requireAuth } from "../middleware/auth";
+import { audit } from "../lib/notify";
 
 export const authRouter = Router();
 
@@ -30,4 +32,28 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
     expiresIn: config.jwtExpires,
   } as jwt.SignOptions);
   res.json({ token, user: { id: user.id, role: user.role, full_name: user.full_name } });
+});
+
+const ChangePasswordBody = z.object({
+  current_password: z.string().min(1),
+  new_password: z.string().min(10, "New password must be at least 10 characters"),
+});
+
+/** PATCH /auth/password — self-service password change; requires the current password. */
+authRouter.patch("/password", requireAuth, async (req, res) => {
+  const parsed = ChangePasswordBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  const { current_password, new_password } = parsed.data;
+
+  const row = await one<{ password_hash: string }>("SELECT password_hash FROM users WHERE id = $1", [req.user!.id]);
+  if (!row || !(await bcrypt.compare(current_password, row.password_hash)))
+    return res.status(401).json({ error: "Current password is incorrect" });
+
+  const newHash = await bcrypt.hash(new_password, 12);
+  await one("UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2 RETURNING id", [
+    newHash,
+    req.user!.id,
+  ]);
+  await audit(req.user!.id, "user.password_changed", "user", req.user!.id);
+  res.status(204).end();
 });
