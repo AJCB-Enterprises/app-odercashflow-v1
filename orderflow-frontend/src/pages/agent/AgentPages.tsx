@@ -1,25 +1,31 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
-import { Card, ErrorBox, InvoiceChip, Loading, OrderChip, useData, useToast } from "../../components";
+import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData, useToast } from "../../components";
 
 /* ---- My assigned clients ---- */
 export function AgentClients() {
-  const { data, error, loading } = useData<any[]>(() => api.get("/clients"), []);
+  const { data, error, loading, reload } = useData<any[]>(() => api.get("/clients"), []);
+  const [showForm, setShowForm] = useState(false);
   return (
     <>
       <h1 className="page">My assigned clients</h1>
-      <p className="pagesub">Clients assigned to you by the admin.</p>
+      <p className="pagesub">Clients assigned to you by the admin. New clients you add here are assigned to you automatically.</p>
+      <button className="btn sm" style={{ marginBottom: 16 }} onClick={() => setShowForm((s) => !s)}>
+        {showForm ? "Cancel" : "+ New client"}
+      </button>
+      {showForm && <NewClientForm onDone={() => { setShowForm(false); reload(); }} />}
       {error && <ErrorBox msg={error} />}
       <Card pad={false}>
         {loading ? <Loading /> : (
           <table className="ledger">
-            <thead><tr><th>Client</th><th>Contact</th><th>Orders</th><th>Open invoices</th></tr></thead>
+            <thead><tr><th>Client</th><th>Contact</th><th>Address</th><th>Orders</th><th>Open invoices</th></tr></thead>
             <tbody>
               {(data || []).map((c) => (
                 <tr key={c.id}>
                   <td className="strong">{c.company_name}</td>
                   <td>{c.contact_name}<div className="dim num">{c.email} · {c.phone || "no phone"}</div></td>
+                  <td className="dim">{c.address || "—"}</td>
                   <td className="num">{c.order_count}</td>
                   <td>
                     {Number(c.open_invoice_count) > 0
@@ -28,7 +34,7 @@ export function AgentClients() {
                   </td>
                 </tr>
               ))}
-              {!data?.length && <tr><td colSpan={4} className="empty">No clients assigned to you yet.</td></tr>}
+              {!data?.length && <tr><td colSpan={5} className="empty">No clients assigned to you yet.</td></tr>}
             </tbody>
           </table>
         )}

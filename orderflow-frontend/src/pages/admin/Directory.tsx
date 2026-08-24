@@ -1,33 +1,47 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
-import { Card, ErrorBox, InvoiceChip, Loading, OrderChip, useData } from "../../components";
+import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData } from "../../components";
 
 export function Directory() {
   const [q, setQ] = useState("");
-  const { data, error, loading } = useData<any[]>(
+  const [showForm, setShowForm] = useState(false);
+  const { data, error, loading, reload } = useData<any[]>(
     () => api.get(`/clients${q ? `?search=${encodeURIComponent(q)}` : ""}`),
     [q]
   );
   const navigate = useNavigate();
+  const { data: agents } = useData<any[]>(() => api.get("/agents"), []);
 
   return (
     <>
       <h1 className="page">Customer directory</h1>
       <p className="pagesub">Central, searchable customer database — contact details, order history, and invoice status per client.</p>
-      <input className="f" style={{ maxWidth: 380, marginBottom: 16 }} value={q}
-        placeholder="Search by name, contact, email, or phone…"
-        onChange={(e) => setQ(e.target.value)} aria-label="Search customers" />
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
+        <input className="f" style={{ maxWidth: 380, marginBottom: 0 }} value={q}
+          placeholder="Search by name, contact, email, or phone…"
+          onChange={(e) => setQ(e.target.value)} aria-label="Search customers" />
+        <button className="btn sm" onClick={() => setShowForm((s) => !s)}>
+          {showForm ? "Cancel" : "+ New client"}
+        </button>
+      </div>
+      {showForm && (
+        <NewClientForm
+          agents={agents || []}
+          onDone={() => { setShowForm(false); reload(); }}
+        />
+      )}
       {error && <ErrorBox msg={error} />}
       <Card pad={false}>
         {loading ? <Loading /> : (
           <table className="ledger">
-            <thead><tr><th>Client</th><th>Contact</th><th>Agent</th><th>Orders</th><th>Open invoices</th></tr></thead>
+            <thead><tr><th>Client</th><th>Contact</th><th>Address</th><th>Agent</th><th>Orders</th><th>Open invoices</th></tr></thead>
             <tbody>
               {(data || []).map((c) => (
                 <tr key={c.id} className="rowbtn" onClick={() => navigate(`/admin/directory/${c.id}`)}>
                   <td className="strong">{c.company_name}</td>
                   <td>{c.contact_name}<div className="dim num">{c.email} · {c.phone || "no phone"}</div></td>
+                  <td className="dim">{c.address || "—"}</td>
                   <td>{c.agent_name || "—"}</td>
                   <td className="num">{c.order_count}</td>
                   <td>
@@ -37,7 +51,7 @@ export function Directory() {
                   </td>
                 </tr>
               ))}
-              {!data?.length && <tr><td colSpan={5} className="empty">No customers match{q ? ` "${q}"` : ""}.</td></tr>}
+              {!data?.length && <tr><td colSpan={6} className="empty">No customers match{q ? ` "${q}"` : ""}.</td></tr>}
             </tbody>
           </table>
         )}
@@ -60,7 +74,7 @@ export function ClientDetail() {
       <button className="back" onClick={() => navigate("/admin/directory")}>← Back to directory</button>
       <h1 className="page">{client.company_name}</h1>
       <p className="pagesub">
-        {client.contact_name} · {client.email} · {client.phone || "no phone"} · Agent: {client.agent_name || "—"}
+        {client.contact_name} · {client.email} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
       </p>
 
       <Card title="Pending invoices" hint="shown when reviewing this account" pad={false}>

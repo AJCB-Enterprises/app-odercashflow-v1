@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { daysUntil } from "./api";
+import { api, daysUntil } from "./api";
 
 /* ---- Card ---- */
 export function Card({ title, hint, pad = true, children }: {
@@ -72,3 +72,64 @@ export function useData<T>(load: () => Promise<T>, deps: unknown[] = []) {
 
 export const Loading = () => <div className="empty">Loading…</div>;
 export const ErrorBox = ({ msg }: { msg: string }) => <div className="errbox">{msg}</div>;
+
+/* ---- new client form (admin: can assign an agent; agent: auto-assigned to self) ---- */
+export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_name: string }[]; onDone: () => void }) {
+  const [companyName, setCompanyName] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [agentId, setAgentId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.post("/clients", {
+        company_name: companyName.trim(),
+        contact_name: contactName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        address: address.trim() || undefined,
+        ...(agents ? { agent_id: agentId || null } : {}),
+      });
+      toast(`${companyName} added to the directory.`);
+      onDone();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const valid = companyName.trim() && contactName.trim() && email.trim();
+
+  return (
+    <Card title="New client">
+      <label className="f" htmlFor="ncc">Company name</label>
+      <input id="ncc" className="f" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+      <label className="f" htmlFor="ncn">Contact name</label>
+      <input id="ncn" className="f" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+      <label className="f" htmlFor="nce">Email</label>
+      <input id="nce" className="f" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <label className="f" htmlFor="ncp">Phone</label>
+      <input id="ncp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <label className="f" htmlFor="nca">Address</label>
+      <input id="nca" className="f" value={address} onChange={(e) => setAddress(e.target.value)} />
+      {agents && (
+        <>
+          <label className="f" htmlFor="ncg">Assign to agent</label>
+          <select id="ncg" className="f" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+            <option value="">Unassigned</option>
+            {agents.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
+          </select>
+        </>
+      )}
+      <button className="btn" disabled={!valid || busy} onClick={submit} style={{ marginTop: 12 }}>
+        {busy ? "Adding…" : "Add client"}
+      </button>
+    </Card>
+  );
+}

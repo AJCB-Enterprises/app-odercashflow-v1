@@ -25,7 +25,7 @@ clientsRouter.get("/", async (req, res) => {
   if (scope.param) params.push(scope.param);
 
   const rows = await q(
-    `SELECT c.id, c.company_name, c.contact_name, c.email, c.phone, c.agent_id,
+    `SELECT c.id, c.company_name, c.contact_name, c.email, c.phone, c.address, c.agent_id,
             u.full_name AS agent_name,
             count(o.id) FILTER (WHERE o.id IS NOT NULL) AS order_count,
             count(i.id) FILTER (WHERE i.status IN ('unpaid','receipt_uploaded')) AS open_invoice_count,
@@ -94,15 +94,19 @@ const ClientBody = z.object({
   notes: z.string().optional(),
 });
 
-/** POST /clients — admin creates a customer record. */
-clientsRouter.post("/", requireAdmin, async (req, res) => {
+/**
+ * POST /clients — creates a customer record.
+ * Admin: can assign to any agent (or leave unassigned). Agent: always assigned to themselves.
+ */
+clientsRouter.post("/", async (req, res) => {
   const parsed = ClientBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const b = parsed.data;
+  const agentId = req.user!.role === "admin" ? (b.agent_id ?? null) : req.user!.id;
   const row = await one(
     `INSERT INTO clients (company_name, contact_name, email, phone, address, agent_id, notes)
      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [b.company_name, b.contact_name, b.email, b.phone ?? null, b.address ?? null, b.agent_id ?? null, b.notes ?? null]
+    [b.company_name, b.contact_name, b.email, b.phone ?? null, b.address ?? null, agentId, b.notes ?? null]
   );
   await audit(req.user!.id, "client.created", "client", row.id);
   res.status(201).json(row);
