@@ -18,4 +18,5 @@ export const config = {
   mailFrom: process.env.MAIL_FROM || "OrderFlow Billing <billing@example.com>",
   appTz: process.env.APP_TZ || "Asia/Manila",
   tokenTtlDays: Number(process.env.TOKEN_TTL_DAYS || 30),
+  corsOrigin: process.env.CORS_ORIGIN || "*",
 };

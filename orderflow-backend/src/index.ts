@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import { config } from "./config";
 import { authRouter } from "./routes/auth";
 import { dashboardRouter } from "./routes/dashboard";
@@ -13,6 +14,7 @@ import { startReminderWorker } from "./worker/reminders";
 
 const app = express();
 app.set("trust proxy", 1);
+app.use(cors({ origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",") }));
 app.use(express.json({ limit: "256kb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
