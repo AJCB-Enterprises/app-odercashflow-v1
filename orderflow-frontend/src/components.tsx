@@ -81,7 +81,7 @@ export const PAYMENT_TERM_OPTIONS = [
   { value: "cod", label: "COD" },
 ];
 export const VAT_STATUS_OPTIONS = [
-  { value: "vat_exempt", label: "VAT-Exempt" },
+  { value: "vat_exempt", label: "SO/ DR" },
   { value: "vat_inclusive", label: "VAT-Inclusive" },
   { value: "zero_rated", label: "Zero-Rated" },
 ];
