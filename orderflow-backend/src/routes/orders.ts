@@ -82,25 +82,34 @@ const OrderBody = z.object({
       })
     )
     .min(1),
+  payment_terms: z.enum(["net_15", "net_30", "net_45", "cod"]).optional(),
+  vat_status: z.enum(["vat_exempt", "vat_inclusive", "zero_rated"]).optional(),
 });
+
+/** Days until due for each payment term; COD invoices are due immediately. */
+const DUE_DAYS: Record<string, number> = { net_15: 15, net_30: 30, net_45: 45, cod: 0 };
 
 /** POST /orders — agent creates a PO on behalf of an assigned client. */
 ordersRouter.post("/", requireAgentPermission("can_create_po"), async (req, res) => {
   const user = req.user!;
   const parsed = OrderBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
-  const { client_id, items } = parsed.data;
+  const { client_id, items, payment_terms, vat_status } = parsed.data;
 
   // Agents may only order for their own clients.
-  const clientRow = await one("SELECT id, company_name, agent_id FROM clients WHERE id = $1", [client_id]);
+  const clientRow = await one(
+    "SELECT id, company_name, agent_id, payment_terms, vat_status FROM clients WHERE id = $1",
+    [client_id]
+  );
   if (!clientRow || (user.role === "agent" && clientRow.agent_id !== user.id))
     return res.status(404).json({ error: "Client not found" });
 
   const created = await tx(async (c) => {
     const orderNo = await nextDocNo(c, "PO");
     const orderRes = await c.query(
-      "INSERT INTO orders (order_no, client_id, created_by) VALUES ($1, $2, $3) RETURNING *",
-      [orderNo, client_id, user.id]
+      `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [orderNo, client_id, user.id, payment_terms ?? clientRow.payment_terms, vat_status ?? clientRow.vat_status]
     );
     const order = orderRes.rows[0];
     for (const it of items)
@@ -123,11 +132,11 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), async (req, res)
 
 /**
  * POST /orders/:id/approve — admin approves; transactionally issues the
- * invoice (net-14 by default), notifies the agent, emails the client.
+ * invoice (due date driven by the order's payment terms), notifies the
+ * agent, emails the client.
  */
 ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
   const user = req.user!;
-  const dueDays = Number(req.body?.due_days ?? 14);
 
   const result = await tx(async (c) => {
     const ordRes = await c.query(
@@ -137,6 +146,7 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
     );
     const order = ordRes.rows[0];
     if (!order) return null;
+    const dueDays = DUE_DAYS[order.payment_terms] ?? 30;
 
     const totalRes = await c.query(
       "SELECT coalesce(sum(qty * unit_price), 0) AS total FROM order_items WHERE order_id = $1",

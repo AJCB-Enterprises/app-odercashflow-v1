@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
-import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData, useToast } from "../../components";
+import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, PAYMENT_TERM_OPTIONS, useData, useToast, VAT_STATUS_OPTIONS } from "../../components";
 
 /* ---- My assigned clients ---- */
 export function AgentClients() {
@@ -48,6 +48,8 @@ export function AgentNewOrder() {
   const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
+  const [paymentTerms, setPaymentTerms] = useState("net_30");
+  const [vatStatus, setVatStatus] = useState("vat_inclusive");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
@@ -63,7 +65,9 @@ export function AgentNewOrder() {
   const submit = async () => {
     setBusy(true);
     try {
-      const order = await api.post("/orders", { client_id: chosen, items: clean });
+      const order = await api.post("/orders", {
+        client_id: chosen, items: clean, payment_terms: paymentTerms, vat_status: vatStatus,
+      });
       toast(`Order ${order.order_no} submitted — admin has been notified.`);
       navigate("/agent/orders");
     } catch (e: any) {
@@ -83,6 +87,14 @@ export function AgentNewOrder() {
           <label className="f" htmlFor="poc">On behalf of client</label>
           <select id="poc" className="f" style={{ maxWidth: 340 }} value={chosen} onChange={(e) => setClientId(e.target.value)}>
             {(clients || []).map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+          </select>
+          <label className="f" htmlFor="pot">Payment terms</label>
+          <select id="pot" className="f" style={{ maxWidth: 340 }} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
+            {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <label className="f" htmlFor="pov">VAT status</label>
+          <select id="pov" className="f" style={{ maxWidth: 340 }} value={vatStatus} onChange={(e) => setVatStatus(e.target.value)}>
+            {VAT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <label className="f">Line items</label>
           {items.map((it, i) => (

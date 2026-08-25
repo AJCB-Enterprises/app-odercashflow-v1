@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
-import { Card, ErrorBox, InvoiceChip, Loading, OrderChip, useData, useToast } from "../../components";
+import { Card, ErrorBox, InvoiceChip, Loading, OrderChip, PAYMENT_TERM_OPTIONS, useData, useToast, VAT_STATUS_OPTIONS } from "../../components";
 
 export function OrderList() {
   const { data, error, loading } = useData<any[]>(() => api.get("/orders"), []);
@@ -76,6 +76,8 @@ export function OrderDetail() {
       <p className="pagesub">
         {order.company_name} · submitted {fmtDate(order.created_at)}
         {order.agent_name ? ` by ${order.agent_name}` : ""}
+        {" · "}{PAYMENT_TERM_OPTIONS.find((o) => o.value === order.payment_terms)?.label || order.payment_terms}
+        {" · "}{VAT_STATUS_OPTIONS.find((o) => o.value === order.vat_status)?.label || order.vat_status}
       </p>
       <div style={{ marginBottom: 16 }}>
         {order.status === "approved" && <span className="stamp green">Approved</span>}

@@ -73,6 +73,19 @@ export function useData<T>(load: () => Promise<T>, deps: unknown[] = []) {
 export const Loading = () => <div className="empty">Loading…</div>;
 export const ErrorBox = ({ msg }: { msg: string }) => <div className="errbox">{msg}</div>;
 
+/* ---- payment terms / VAT status: shared option lists ---- */
+export const PAYMENT_TERM_OPTIONS = [
+  { value: "net_15", label: "Net 15" },
+  { value: "net_30", label: "Net 30" },
+  { value: "net_45", label: "Net 45" },
+  { value: "cod", label: "COD" },
+];
+export const VAT_STATUS_OPTIONS = [
+  { value: "vat_exempt", label: "VAT-Exempt" },
+  { value: "vat_inclusive", label: "VAT-Inclusive" },
+  { value: "zero_rated", label: "Zero-Rated" },
+];
+
 /* ---- new client form (admin: can assign an agent; agent: auto-assigned to self) ---- */
 export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_name: string }[]; onDone: () => void }) {
   const [companyName, setCompanyName] = useState("");
@@ -81,6 +94,8 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [agentId, setAgentId] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState("net_30");
+  const [vatStatus, setVatStatus] = useState("vat_inclusive");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -93,6 +108,8 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
         email: email.trim(),
         phone: phone.trim() || undefined,
         address: address.trim() || undefined,
+        payment_terms: paymentTerms,
+        vat_status: vatStatus,
         ...(agents ? { agent_id: agentId || null } : {}),
       });
       toast(`${companyName} added to the directory.`);
@@ -118,6 +135,14 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
       <input id="ncp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
       <label className="f" htmlFor="nca">Address</label>
       <input id="nca" className="f" value={address} onChange={(e) => setAddress(e.target.value)} />
+      <label className="f" htmlFor="nct">Payment terms</label>
+      <select id="nct" className="f" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
+        {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <label className="f" htmlFor="ncv">VAT status</label>
+      <select id="ncv" className="f" value={vatStatus} onChange={(e) => setVatStatus(e.target.value)}>
+        {VAT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
       {agents && (
         <>
           <label className="f" htmlFor="ncg">Assign to agent</label>
@@ -136,7 +161,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
 
 /* ---- edit client form (admin only, can reassign agent) ---- */
 export function EditClientForm({ client, agents, onDone, onCancel }: {
-  client: { id: string; company_name: string; contact_name: string; email: string; phone?: string; address?: string; agent_id?: string; notes?: string };
+  client: { id: string; company_name: string; contact_name: string; email: string; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string };
   agents: { id: string; full_name: string }[];
   onDone: () => void;
   onCancel: () => void;
@@ -148,6 +173,8 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
   const [address, setAddress] = useState(client.address || "");
   const [agentId, setAgentId] = useState(client.agent_id || "");
   const [notes, setNotes] = useState(client.notes || "");
+  const [paymentTerms, setPaymentTerms] = useState(client.payment_terms || "net_30");
+  const [vatStatus, setVatStatus] = useState(client.vat_status || "vat_inclusive");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -162,6 +189,8 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
         address: address.trim() || undefined,
         notes: notes.trim() || undefined,
         agent_id: agentId || null,
+        payment_terms: paymentTerms,
+        vat_status: vatStatus,
       });
       toast("Client details updated.");
       onDone();
@@ -186,6 +215,14 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
       <input id="ecp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
       <label className="f" htmlFor="eca">Address</label>
       <input id="eca" className="f" value={address} onChange={(e) => setAddress(e.target.value)} />
+      <label className="f" htmlFor="ect">Payment terms</label>
+      <select id="ect" className="f" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
+        {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <label className="f" htmlFor="ecv">VAT status</label>
+      <select id="ecv" className="f" value={vatStatus} onChange={(e) => setVatStatus(e.target.value)}>
+        {VAT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
       <label className="f" htmlFor="ecg">Assign to agent</label>
       <select id="ecg" className="f" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
         <option value="">Unassigned</option>
