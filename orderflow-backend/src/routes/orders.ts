@@ -1,13 +1,21 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { one, q, tx } from "../db";
 import { clientScopeSql, requireAdmin, requireAgentPermission, requireAuth } from "../middleware/auth";
 import { nextDocNo, peso, shortDate } from "../lib/numbering";
 import { audit, notifyAdmins, notifyUser } from "../lib/notify";
 import { sendMail } from "../lib/email";
+import { config } from "../config";
+import { readOrderAttachment, saveOrderAttachment, sniffFileType } from "../lib/storage";
 
 export const ordersRouter = Router();
 ordersRouter.use(requireAuth);
+
+const uploadAttachment = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
+});
 
 /** GET /orders?status=pending — admin sees all; agents see their clients' orders. */
 ordersRouter.get("/", async (req, res) => {
@@ -84,17 +92,36 @@ const OrderBody = z.object({
     .min(1),
   payment_terms: z.enum(["net_15", "net_30", "net_45", "cod"]).optional(),
   vat_status: z.enum(["vat_exempt", "vat_inclusive", "zero_rated"]).optional(),
+  po_date: z.string().date().optional().or(z.literal("")),
+  po_number: z.string().optional(),
 });
 
 /** Days until due for each payment term; COD invoices are due immediately. */
 const DUE_DAYS: Record<string, number> = { net_15: 15, net_30: 30, net_45: 45, cod: 0 };
 
-/** POST /orders — agent creates a PO on behalf of an assigned client. */
-ordersRouter.post("/", requireAgentPermission("can_create_po"), async (req, res) => {
+/**
+ * POST /orders — agent creates a PO on behalf of an assigned client.
+ * Multipart: "items" arrives as a JSON string (siblings of an optional file
+ * can't otherwise ride in the same multipart request); "file" is optional —
+ * a photo/scan of the client's own PO document (JPG, PNG, or PDF).
+ */
+ordersRouter.post("/", requireAgentPermission("can_create_po"), uploadAttachment.single("file"), async (req, res) => {
   const user = req.user!;
-  const parsed = OrderBody.safeParse(req.body);
+  let itemsInput: unknown;
+  try {
+    itemsInput = JSON.parse(String(req.body.items ?? "[]"));
+  } catch {
+    return res.status(400).json({ error: "Invalid items" });
+  }
+  const parsed = OrderBody.safeParse({ ...req.body, items: itemsInput });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
-  const { client_id, items, payment_terms, vat_status } = parsed.data;
+  const { client_id, items, payment_terms, vat_status, po_date, po_number } = parsed.data;
+
+  let attachment: { ext: string; mime: string } | null = null;
+  if (req.file) {
+    attachment = sniffFileType(req.file.buffer);
+    if (!attachment) return res.status(400).json({ error: "PO attachment must be a JPG, PNG, or PDF" });
+  }
 
   // Agents may only order for their own clients.
   const clientRow = await one(
@@ -107,11 +134,14 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), async (req, res)
   const created = await tx(async (c) => {
     const orderNo = await nextDocNo(c, "PO");
     const orderRes = await c.query(
-      `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [orderNo, client_id, user.id, payment_terms ?? clientRow.payment_terms, vat_status ?? clientRow.vat_status]
+      `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status, po_date, po_number)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [
+        orderNo, client_id, user.id, payment_terms ?? clientRow.payment_terms, vat_status ?? clientRow.vat_status,
+        po_date || null, po_number?.trim() || null,
+      ]
     );
-    const order = orderRes.rows[0];
+    let order = orderRes.rows[0];
     for (const it of items)
       await c.query("INSERT INTO order_items (order_id, description, qty, unit_price) VALUES ($1,$2,$3,$4)", [
         order.id,
@@ -119,6 +149,17 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), async (req, res)
         it.qty,
         it.unit_price,
       ]);
+
+    if (req.file && attachment) {
+      const key = await saveOrderAttachment(order.id, attachment.ext, req.file.buffer);
+      const updRes = await c.query(
+        `UPDATE orders SET attachment_key = $2, attachment_name = $3, attachment_mime = $4, attachment_size_bytes = $5
+          WHERE id = $1 RETURNING *`,
+        [order.id, key, (req.file.originalname || `po.${attachment.ext}`).slice(0, 200), attachment.mime, req.file.size]
+      );
+      order = updRes.rows[0];
+    }
+
     await notifyAdmins(
       `New order ${orderNo} submitted for ${clientRow.company_name} by ${user.full_name}.`,
       `/orders/${order.id}`,
@@ -128,6 +169,26 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), async (req, res)
     return order;
   });
   res.status(201).json(created);
+});
+
+/** GET /orders/:id/attachment — streams the client's PO document, if one was uploaded. */
+ordersRouter.get("/:id/attachment", async (req, res) => {
+  const user = req.user!;
+  const params: any[] = [req.params.id];
+  const scope = clientScopeSql(user, "c", 2);
+  if (scope.param) params.push(scope.param);
+
+  const order = await one(
+    `SELECT o.attachment_key, o.attachment_name, o.attachment_mime FROM orders o
+       JOIN clients c ON c.id = o.client_id
+      WHERE o.id = $1${scope.sql}`,
+    params
+  );
+  if (!order || !order.attachment_key) return res.status(404).json({ error: "No attachment for this order" });
+  const data = await readOrderAttachment(order.attachment_key);
+  res.setHeader("Content-Type", order.attachment_mime);
+  res.setHeader("Content-Disposition", `inline; filename="${order.attachment_name.replace(/"/g, "")}"`);
+  res.send(data);
 });
 
 /**

@@ -51,6 +51,14 @@ export function OrderDetail() {
   const { order, items, pending_invoices } = data;
   const total = items.reduce((s: number, it: any) => s + Number(it.qty) * Number(it.unit_price), 0);
 
+  const viewAttachment = async (orderId: string) => {
+    try {
+      await api.openBlob(`/orders/${orderId}/attachment`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
   const decide = async (action: "approve" | "reject") => {
     setBusy(true);
     try {
@@ -79,6 +87,15 @@ export function OrderDetail() {
         {" · "}{PAYMENT_TERM_OPTIONS.find((o) => o.value === order.payment_terms)?.label || order.payment_terms}
         {" · "}{VAT_STATUS_OPTIONS.find((o) => o.value === order.vat_status)?.label || order.vat_status}
       </p>
+      {(order.po_date || order.po_number || order.attachment_name) && (
+        <p className="dim" style={{ marginTop: -8, marginBottom: 16 }}>
+          Client's PO: {order.po_number || "no number given"}
+          {order.po_date ? ` · dated ${fmtDate(order.po_date)}` : ""}
+          {order.attachment_name && (
+            <> · <button className="btn sm ghost" onClick={() => viewAttachment(order.id)}>View attached document</button></>
+          )}
+        </p>
+      )}
       <div style={{ marginBottom: 16 }}>
         {order.status === "approved" && <span className="stamp green">Approved</span>}
         {order.status === "rejected" && <span className="stamp red">Rejected</span>}

@@ -60,6 +60,8 @@ export const api = {
     form.append("file", file);
     return request<T>(path, { method: "POST", body: form }, false);
   },
+  /** Authenticated multipart POST — e.g. a new order with an optional PO attachment. */
+  postForm: <T = any>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
   /** Fetch a protected binary (receipt file) and open it in a new tab. */
   openBlob: async (path: string) => {
     const res = await fetch(BASE + path, { headers: { Authorization: `Bearer ${getToken()}` } });

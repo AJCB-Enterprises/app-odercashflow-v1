@@ -50,6 +50,9 @@ export function AgentNewOrder() {
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
   const [paymentTerms, setPaymentTerms] = useState("net_30");
   const [vatStatus, setVatStatus] = useState("vat_inclusive");
+  const [poDate, setPoDate] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
@@ -65,9 +68,15 @@ export function AgentNewOrder() {
   const submit = async () => {
     setBusy(true);
     try {
-      const order = await api.post("/orders", {
-        client_id: chosen, items: clean, payment_terms: paymentTerms, vat_status: vatStatus,
-      });
+      const form = new FormData();
+      form.append("client_id", chosen);
+      form.append("items", JSON.stringify(clean));
+      form.append("payment_terms", paymentTerms);
+      form.append("vat_status", vatStatus);
+      if (poDate) form.append("po_date", poDate);
+      if (poNumber.trim()) form.append("po_number", poNumber.trim());
+      if (file) form.append("file", file);
+      const order = await api.postForm("/orders", form);
       toast(`Order ${order.order_no} submitted — admin has been notified.`);
       navigate("/agent/orders");
     } catch (e: any) {
@@ -96,6 +105,14 @@ export function AgentNewOrder() {
           <select id="pov" className="f" style={{ maxWidth: 340 }} value={vatStatus} onChange={(e) => setVatStatus(e.target.value)}>
             {VAT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+          <label className="f" htmlFor="pod">Purchase order date</label>
+          <input id="pod" className="f" type="date" style={{ maxWidth: 340 }} value={poDate} onChange={(e) => setPoDate(e.target.value)} />
+          <label className="f" htmlFor="pon">Purchase order number</label>
+          <input id="pon" className="f" style={{ maxWidth: 340 }} placeholder="Client's own PO reference, e.g. PO-1042"
+            value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+          <label className="f" htmlFor="pof">Attach PO document (optional)</label>
+          <input id="pof" className="f" type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ maxWidth: 340 }}
+            onChange={(e) => setFile(e.target.files?.[0] || null)} />
           <label className="f">Line items</label>
           {items.map((it, i) => (
             <div className="itemrow" key={i}>
