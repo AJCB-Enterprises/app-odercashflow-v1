@@ -51,13 +51,53 @@ export const runReminders = async (type: "payment" | "order", opts: { force?: bo
   return { type, sent };
 };
 
+interface DueInvoice {
+  id: string;
+  invoice_no: string;
+  amount: string | number;
+  due_date: string;
+  is_overdue: boolean;
+  client_id: string;
+  contact_name: string;
+  email: string;
+}
+
+/**
+ * Sends one payment reminder email for an invoice and logs it (same
+ * transaction, so a crash after sendMail can't double-send next tick).
+ * Shared by the scheduled batch run and any real-time trigger (e.g. COD).
+ */
+export const sendPaymentReminder = async (inv: DueInvoice, template: string): Promise<void> => {
+  await tx(async (c) => {
+    const rawToken = await issueUploadToken(inv.id, c);
+    const subject = `Payment reminder — ${inv.invoice_no} ${
+      inv.is_overdue ? "is overdue" : "due " + shortDate(inv.due_date)
+    }`;
+    const body =
+      renderTemplate(template, {
+        contact: inv.contact_name,
+        invoice: inv.invoice_no,
+        amount: peso(inv.amount),
+        due: shortDate(inv.due_date),
+      }) + `\n\nUpload your receipt here (secure link, no login needed):\n${uploadUrl(rawToken)}`;
+
+    const logRes = await c.query(
+      `INSERT INTO reminder_logs (type, invoice_id, client_id, sent_to, subject)
+       VALUES ('payment', $1, $2, $3, $4) RETURNING id`,
+      [inv.id, inv.client_id, inv.email, subject]
+    );
+    const mail = await sendMail(inv.email, subject, body);
+    await c.query("UPDATE reminder_logs SET provider_id = $2 WHERE id = $1", [logRes.rows[0].id, mail.providerId]);
+  });
+};
+
 /**
  * Payment reminders. An invoice qualifies when it is unpaid, inside the
  * days-before window (or overdue), and its last payment reminder is older than
  * frequency_days. Each send gets a fresh upload token.
  */
 const runPaymentReminders = async (s: Settings): Promise<number> => {
-  const due = await q(
+  const due = await q<DueInvoice>(
     `SELECT i.id, i.invoice_no, i.amount, i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
             c.id AS client_id, c.contact_name, c.company_name, c.email
@@ -77,28 +117,7 @@ const runPaymentReminders = async (s: Settings): Promise<number> => {
   let sent = 0;
   for (const inv of due) {
     try {
-      await tx(async (c) => {
-        const rawToken = await issueUploadToken(inv.id, c);
-        const subject = `Payment reminder — ${inv.invoice_no} ${
-          inv.is_overdue ? "is overdue" : "due " + shortDate(inv.due_date)
-        }`;
-        const body =
-          renderTemplate(s.template, {
-            contact: inv.contact_name,
-            invoice: inv.invoice_no,
-            amount: peso(inv.amount),
-            due: shortDate(inv.due_date),
-          }) + `\n\nUpload your receipt here (secure link, no login needed):\n${uploadUrl(rawToken)}`;
-
-        // Log first (same transaction) so a crash after sendMail can't double-send next tick.
-        const logRes = await c.query(
-          `INSERT INTO reminder_logs (type, invoice_id, client_id, sent_to, subject)
-           VALUES ('payment', $1, $2, $3, $4) RETURNING id`,
-          [inv.id, inv.client_id, inv.email, subject]
-        );
-        const mail = await sendMail(inv.email, subject, body);
-        await c.query("UPDATE reminder_logs SET provider_id = $2 WHERE id = $1", [logRes.rows[0].id, mail.providerId]);
-      });
+      await sendPaymentReminder(inv, s.template);
       sent++;
     } catch (err: any) {
       console.error(`payment reminder failed for ${inv.invoice_no}:`, err.message);

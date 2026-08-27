@@ -8,6 +8,7 @@ import { audit, notifyAdmins, notifyUser } from "../lib/notify";
 import { sendMail } from "../lib/email";
 import { config } from "../config";
 import { readOrderAttachment, saveOrderAttachment, sniffFileType } from "../lib/storage";
+import { sendPaymentReminder } from "../worker/reminders";
 
 export const ordersRouter = Router();
 ordersRouter.use(requireAuth);
@@ -245,6 +246,31 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
         `Invoice ${result.invoice.invoice_no} for ${peso(result.invoice.amount)} is due on ` +
         `${shortDate(result.invoice.due_date)}. You'll receive payment reminders with a secure upload link.`
     ).catch((e) => console.error("approval email failed:", e.message));
+
+  // COD is due on delivery, i.e. right now — send the payment reminder (with
+  // the upload link) immediately instead of waiting for the next 15-minute tick.
+  if (client && result.order.payment_terms === "cod") {
+    one<{ template: string; is_enabled: boolean }>(
+      "SELECT template, is_enabled FROM reminder_settings WHERE type = 'payment'"
+    )
+      .then((settings) => {
+        if (!settings?.is_enabled) return;
+        return sendPaymentReminder(
+          {
+            id: result.invoice.id,
+            invoice_no: result.invoice.invoice_no,
+            amount: result.invoice.amount,
+            due_date: result.invoice.due_date,
+            is_overdue: false,
+            client_id: result.order.client_id,
+            contact_name: client.contact_name,
+            email: client.email,
+          },
+          settings.template
+        );
+      })
+      .catch((e) => console.error("COD real-time reminder failed:", e.message));
+  }
 
   res.json(result);
 });
