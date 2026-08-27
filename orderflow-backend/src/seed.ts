@@ -4,10 +4,10 @@ import { nextDocNo } from "./lib/numbering";
 
 /**
  * Demo data for local development. Idempotent-ish: exits if the admin exists.
- * Logins — admin@orderflow.ph / admin-pass-123, rosa@orderflow.ph / agent-pass-123
+ * Logins — admin@ajcb.com.ph / admin-pass-123, rosa@orderflow.ph / agent-pass-123
  */
 const run = async () => {
-  if (await one("SELECT 1 FROM users WHERE email = 'admin@orderflow.ph'")) {
+  if (await one("SELECT 1 FROM users WHERE email = 'admin@ajcb.com.ph'")) {
     console.log("Seed already applied — nothing to do.");
     await pool.end();
     return;
@@ -18,7 +18,7 @@ const run = async () => {
     const admin = (
       await c.query(
         `INSERT INTO users (role, full_name, email, password_hash)
-         VALUES ('admin', 'Site Admin', 'admin@orderflow.ph', $1) RETURNING id`,
+         VALUES ('admin', 'Site Admin', 'admin@ajcb.com.ph', $1) RETURNING id`,
         [hash("admin-pass-123")]
       )
     ).rows[0];
@@ -91,7 +91,7 @@ const run = async () => {
     );
   });
 
-  console.log("Seeded. Logins: admin@orderflow.ph / admin-pass-123 · rosa@orderflow.ph / agent-pass-123");
+  console.log("Seeded. Logins: admin@ajcb.com.ph / admin-pass-123 · rosa@orderflow.ph / agent-pass-123");
   await pool.end();
 };
 
