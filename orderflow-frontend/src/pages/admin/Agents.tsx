@@ -70,7 +70,7 @@ export default function Agents() {
                   <td>
                     <label style={{ display: "block", cursor: "pointer" }}>
                       <input type="checkbox" checked={a.can_create_po}
-                        onChange={() => patch(a.id, { can_create_po: !a.can_create_po })} /> Create purchase orders
+                        onChange={() => patch(a.id, { can_create_po: !a.can_create_po })} /> Create sales orders
                     </label>
                     <label style={{ display: "block", cursor: "pointer" }}>
                       <input type="checkbox" checked={a.can_view_invoices}

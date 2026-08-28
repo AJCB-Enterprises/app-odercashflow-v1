@@ -1,11 +1,13 @@
 import { PoolClient } from "pg";
 
 /**
- * Next human-readable document number, e.g. nextDocNo(c, "PO") -> "PO-2026-0007".
+ * Next human-readable document number, e.g. nextDocNo(c, "SO") -> "SO-2026-0007".
  * Uses an upsert on doc_counters inside the caller's transaction, so numbers
  * are gapless per year and safe under concurrency (row-level lock on upsert).
+ * Sales Invoice numbers are the real, admin-entered official document numbers
+ * and are never generated here.
  */
-export const nextDocNo = async (client: PoolClient, kind: "PO" | "INV"): Promise<string> => {
+export const nextDocNo = async (client: PoolClient, kind: "SO"): Promise<string> => {
   const year = new Date().getFullYear();
   const res = await client.query(
     `INSERT INTO doc_counters (kind, year, counter) VALUES ($1, $2, 1)

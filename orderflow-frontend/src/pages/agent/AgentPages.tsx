@@ -43,7 +43,7 @@ export function AgentClients() {
   );
 }
 
-/* ---- New purchase order ---- */
+/* ---- New sales order ---- */
 export function AgentNewOrder() {
   const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
   const [clientId, setClientId] = useState("");
@@ -88,8 +88,8 @@ export function AgentNewOrder() {
 
   return (
     <>
-      <h1 className="page">New purchase order</h1>
-      <p className="pagesub">Create and submit a purchase order on behalf of an assigned client. It goes to the admin for review.</p>
+      <h1 className="page">New sales order</h1>
+      <p className="pagesub">Create and submit a sales order on behalf of an assigned client. It goes to the admin for review.</p>
       {error && <ErrorBox msg={error} />}
       {loading ? <Loading /> : (
         <Card>
@@ -176,7 +176,7 @@ export function AgentOrders() {
             </tbody>
           </table>
         </Card>
-      )) : <Card><div className="empty">No orders yet — create one from "New purchase order".</div></Card>}
+      )) : <Card><div className="empty">No orders yet — create one from "New sales order".</div></Card>}
     </>
   );
 }

@@ -55,7 +55,7 @@ export default function Shell() {
             <>
               <div className="navlabel">Agent · {user.full_name}</div>
               <NavItem to="/agent/clients" label="My assigned clients" />
-              <NavItem to="/agent/new-order" label="New purchase order" />
+              <NavItem to="/agent/new-order" label="New sales order" />
               <NavItem to="/agent/orders" label="Orders by client" />
               <NavItem to="/agent/invoices" label="Client past invoices" />
               <NavItem to="/notifications" label="Notifications" badge={unread} />

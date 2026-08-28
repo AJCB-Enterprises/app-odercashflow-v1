@@ -10,7 +10,7 @@ export function OrderList() {
   return (
     <>
       <h1 className="page">Order review</h1>
-      <p className="pagesub">Review submitted orders and purchase orders. Open one to approve or reject it.</p>
+      <p className="pagesub">Review submitted sales orders. Open one to approve or reject it.</p>
       {error && <ErrorBox msg={error} />}
       <Card pad={false}>
         {loading ? <Loading /> : (
@@ -43,6 +43,7 @@ export function OrderDetail() {
   const navigate = useNavigate();
   const toast = useToast();
   const [reason, setReason] = useState("");
+  const [invoiceNo, setInvoiceNo] = useState("");
   const [busy, setBusy] = useState(false);
   const { data, error, loading, reload } = useData<any>(() => api.get(`/orders/${id}`), [id]);
 
@@ -63,7 +64,7 @@ export function OrderDetail() {
     setBusy(true);
     try {
       if (action === "approve") {
-        const res = await api.post(`/orders/${id}/approve`);
+        const res = await api.post(`/orders/${id}/approve`, { invoice_no: invoiceNo.trim() });
         toast(`${order.order_no} approved · ${res.invoice.invoice_no} issued (${peso(res.invoice.amount)})`);
       } else {
         await api.post(`/orders/${id}/reject`, { reason: reason.trim() });
@@ -138,11 +139,14 @@ export function OrderDetail() {
 
       {order.status === "pending" && (
         <Card title="Decision">
+          <label className="f" htmlFor="sin">Sales Invoice number (required to approve)</label>
+          <input id="sin" className="f" style={{ maxWidth: 340 }} value={invoiceNo}
+            onChange={(e) => setInvoiceNo(e.target.value)} placeholder="e.g. SI-2026-0001" />
           <label className="f" htmlFor="rej">Rejection reason or comment (optional)</label>
           <textarea id="rej" className="f" rows={2} value={reason} onChange={(e) => setReason(e.target.value)}
             placeholder="e.g. Settle outstanding invoice first, or adjust quantities." />
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button className="btn green" disabled={busy} onClick={() => decide("approve")}>Approve order</button>
+            <button className="btn green" disabled={busy || !invoiceNo.trim()} onClick={() => decide("approve")}>Approve order</button>
             <button className="btn red" disabled={busy} onClick={() => decide("reject")}>Reject order</button>
           </div>
         </Card>

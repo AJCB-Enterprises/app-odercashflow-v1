@@ -47,7 +47,7 @@ const run = async () => {
     const lanang = await client("Lanang Pharma Supply", "Ben Ocampo", "ben@lanangpharma.ph", "0917 880 7754", marco);
 
     // A pending order (shows up in the admin review queue + order reminders)
-    const po1 = await nextDocNo(c, "PO");
+    const po1 = await nextDocNo(c, "SO");
     const order1 = (
       await c.query("INSERT INTO orders (order_no, client_id, created_by) VALUES ($1, $2, $3) RETURNING id", [
         po1,
@@ -62,7 +62,7 @@ const run = async () => {
     );
 
     // An approved order with an invoice due soon (payment reminder window)
-    const po2 = await nextDocNo(c, "PO");
+    const po2 = await nextDocNo(c, "SO");
     const order2 = (
       await c.query(
         `INSERT INTO orders (order_no, client_id, created_by, status, reviewed_by, reviewed_at)
@@ -75,7 +75,7 @@ const run = async () => {
        ($1, 'Rice 25kg sacks', 40, 1250), ($1, 'Cooking oil 1L', 120, 88)`,
       [order2]
     );
-    const inv1 = await nextDocNo(c, "INV");
+    const inv1 = "SI-2026-0001"; // admin-entered on approval in the real flow — hardcoded here for demo data
     await c.query(
       `INSERT INTO invoices (invoice_no, order_id, client_id, amount, due_date)
        VALUES ($1, $2, $3, 60560, CURRENT_DATE + 2)`,
@@ -83,7 +83,7 @@ const run = async () => {
     );
 
     // An overdue invoice (dashboard + reminders fire immediately)
-    const inv2 = await nextDocNo(c, "INV");
+    const inv2 = "SI-2026-0002";
     await c.query(
       `INSERT INTO invoices (invoice_no, client_id, amount, due_date)
        VALUES ($1, $2, 84200, CURRENT_DATE - 6)`,

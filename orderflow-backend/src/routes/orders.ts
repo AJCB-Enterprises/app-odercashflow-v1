@@ -101,7 +101,7 @@ const OrderBody = z.object({
 const DUE_DAYS: Record<string, number> = { net_15: 15, net_30: 30, net_45: 45, cod: 0 };
 
 /**
- * POST /orders — agent creates a PO on behalf of an assigned client.
+ * POST /orders — agent creates a sales order on behalf of an assigned client.
  * Multipart: "items" arrives as a JSON string (siblings of an optional file
  * can't otherwise ride in the same multipart request); "file" is optional —
  * a photo/scan of the client's own PO document (JPG, PNG, or PDF).
@@ -133,7 +133,7 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), uploadAttachment
     return res.status(404).json({ error: "Client not found" });
 
   const created = await tx(async (c) => {
-    const orderNo = await nextDocNo(c, "PO");
+    const orderNo = await nextDocNo(c, "SO");
     const orderRes = await c.query(
       `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status, po_date, po_number)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
@@ -192,46 +192,59 @@ ordersRouter.get("/:id/attachment", async (req, res) => {
   res.send(data);
 });
 
+const ApproveBody = z.object({
+  invoice_no: z.string().trim().min(1, "Sales Invoice number is required"),
+});
+
 /**
- * POST /orders/:id/approve — admin approves; transactionally issues the
- * invoice (due date driven by the order's payment terms), notifies the
- * agent, emails the client.
+ * POST /orders/:id/approve — admin approves and records the real Sales
+ * Invoice number (SI books are official pre-numbered documents, so the app
+ * never invents one). Due date is still derived from the order's payment
+ * terms. Notifies the agent, emails the client.
  */
 ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
   const user = req.user!;
+  const parsed = ApproveBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  const invoiceNo = parsed.data.invoice_no;
 
-  const result = await tx(async (c) => {
-    const ordRes = await c.query(
-      `UPDATE orders SET status = 'approved', reviewed_by = $2, reviewed_at = now()
-        WHERE id = $1 AND status = 'pending' RETURNING *`,
-      [req.params.id, user.id]
-    );
-    const order = ordRes.rows[0];
-    if (!order) return null;
-    const dueDays = DUE_DAYS[order.payment_terms] ?? 30;
-
-    const totalRes = await c.query(
-      "SELECT coalesce(sum(qty * unit_price), 0) AS total FROM order_items WHERE order_id = $1",
-      [order.id]
-    );
-    const invoiceNo = await nextDocNo(c, "INV");
-    const invRes = await c.query(
-      `INSERT INTO invoices (invoice_no, order_id, client_id, amount, due_date)
-       VALUES ($1, $2, $3, $4, CURRENT_DATE + $5::int) RETURNING *`,
-      [invoiceNo, order.id, order.client_id, totalRes.rows[0].total, dueDays]
-    );
-    const invoice = invRes.rows[0];
-
-    if (order.created_by)
-      await notifyUser(
-        order.created_by,
-        `${order.order_no} was approved. Invoice ${invoiceNo} issued, due ${shortDate(invoice.due_date)}.`,
-        `/orders/${order.id}`,
-        c
+  let result;
+  try {
+    result = await tx(async (c) => {
+      const ordRes = await c.query(
+        `UPDATE orders SET status = 'approved', reviewed_by = $2, reviewed_at = now()
+          WHERE id = $1 AND status = 'pending' RETURNING *`,
+        [req.params.id, user.id]
       );
-    await audit(user.id, "order.approved", "order", order.id, { invoice_no: invoiceNo }, c);
-    return { order, invoice };
-  });
+      const order = ordRes.rows[0];
+      if (!order) return null;
+      const dueDays = DUE_DAYS[order.payment_terms] ?? 30;
+
+      const totalRes = await c.query(
+        "SELECT coalesce(sum(qty * unit_price), 0) AS total FROM order_items WHERE order_id = $1",
+        [order.id]
+      );
+      const invRes = await c.query(
+        `INSERT INTO invoices (invoice_no, order_id, client_id, amount, due_date)
+         VALUES ($1, $2, $3, $4, CURRENT_DATE + $5::int) RETURNING *`,
+        [invoiceNo, order.id, order.client_id, totalRes.rows[0].total, dueDays]
+      );
+      const invoice = invRes.rows[0];
+
+      if (order.created_by)
+        await notifyUser(
+          order.created_by,
+          `${order.order_no} was approved. Invoice ${invoiceNo} issued, due ${shortDate(invoice.due_date)}.`,
+          `/orders/${order.id}`,
+          c
+        );
+      await audit(user.id, "order.approved", "order", order.id, { invoice_no: invoiceNo }, c);
+      return { order, invoice };
+    });
+  } catch (err: any) {
+    if (err?.code === "23505") return res.status(409).json({ error: `Invoice number ${invoiceNo} is already in use` });
+    throw err;
+  }
   if (!result) return res.status(409).json({ error: "Order is not pending review" });
 
   // Email outside the transaction: a mail failure must not roll back the approval.
