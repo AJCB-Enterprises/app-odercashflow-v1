@@ -86,6 +86,10 @@ export const VAT_STATUS_OPTIONS = [
   { value: "zero_rated", label: "Zero-Rated" },
 ];
 
+/** One email per line or comma-separated — used for the "additional emails" fields. */
+const parseEmailList = (raw: string): string[] =>
+  raw.split(/[\n,]+/).map((e) => e.trim()).filter(Boolean);
+
 /* ---- new client form (admin: can assign an agent; agent: auto-assigned to self) ---- */
 export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_name: string }[]; onDone: () => void }) {
   const [companyName, setCompanyName] = useState("");
@@ -96,6 +100,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
   const [agentId, setAgentId] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("net_30");
   const [vatStatus, setVatStatus] = useState("vat_inclusive");
+  const [extraEmails, setExtraEmails] = useState("");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -110,6 +115,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
         address: address.trim() || undefined,
         payment_terms: paymentTerms,
         vat_status: vatStatus,
+        extra_emails: parseEmailList(extraEmails),
         ...(agents ? { agent_id: agentId || null } : {}),
       });
       toast(`${companyName} added to the directory.`);
@@ -131,6 +137,9 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
       <input id="ncn" className="f" value={contactName} onChange={(e) => setContactName(e.target.value)} />
       <label className="f" htmlFor="nce">Email</label>
       <input id="nce" className="f" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <label className="f" htmlFor="ncxe">Additional emails (optional)</label>
+      <textarea id="ncxe" className="f" rows={2} value={extraEmails} onChange={(e) => setExtraEmails(e.target.value)}
+        placeholder="One per line or comma-separated — reminders and announcements go to all of them." />
       <label className="f" htmlFor="ncp">Phone</label>
       <input id="ncp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
       <label className="f" htmlFor="nca">Address</label>
@@ -161,7 +170,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
 
 /* ---- edit client form (admin only, can reassign agent) ---- */
 export function EditClientForm({ client, agents, onDone, onCancel }: {
-  client: { id: string; company_name: string; contact_name: string; email: string; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string };
+  client: { id: string; company_name: string; contact_name: string; email: string; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[] };
   agents: { id: string; full_name: string }[];
   onDone: () => void;
   onCancel: () => void;
@@ -175,6 +184,7 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
   const [notes, setNotes] = useState(client.notes || "");
   const [paymentTerms, setPaymentTerms] = useState(client.payment_terms || "net_30");
   const [vatStatus, setVatStatus] = useState(client.vat_status || "vat_inclusive");
+  const [extraEmails, setExtraEmails] = useState((client.extra_emails || []).join("\n"));
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -191,6 +201,7 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
         agent_id: agentId || null,
         payment_terms: paymentTerms,
         vat_status: vatStatus,
+        extra_emails: parseEmailList(extraEmails),
       });
       toast("Client details updated.");
       onDone();
@@ -211,6 +222,9 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
       <input id="ecn" className="f" value={contactName} onChange={(e) => setContactName(e.target.value)} />
       <label className="f" htmlFor="ece">Email</label>
       <input id="ece" className="f" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <label className="f" htmlFor="ecxe">Additional emails (optional)</label>
+      <textarea id="ecxe" className="f" rows={2} value={extraEmails} onChange={(e) => setExtraEmails(e.target.value)}
+        placeholder="One per line or comma-separated — reminders and announcements go to all of them." />
       <label className="f" htmlFor="ecp">Phone</label>
       <input id="ecp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
       <label className="f" htmlFor="eca">Address</label>

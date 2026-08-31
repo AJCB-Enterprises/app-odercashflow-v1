@@ -16,7 +16,7 @@ export interface SentMail {
  * included — so the whole flow is testable locally. Never log message bodies
  * in production: reminder emails contain upload links.
  */
-export const sendMail = async (to: string, subject: string, text: string): Promise<SentMail> => {
+export const sendMail = async (to: string | string[], subject: string, text: string): Promise<SentMail> => {
   if (config.resendApiKey) {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -31,10 +31,15 @@ export const sendMail = async (to: string, subject: string, text: string): Promi
     const info = await transporter.sendMail({ from: config.mailFrom, to, subject, text });
     return { providerId: info.messageId || "smtp" };
   }
-  console.log(`\n--- EMAIL (dev console transport) ---\nTo: ${to}\nSubject: ${subject}\n\n${text}\n--- END EMAIL ---\n`);
+  const toLabel = Array.isArray(to) ? to.join(", ") : to;
+  console.log(`\n--- EMAIL (dev console transport) ---\nTo: ${toLabel}\nSubject: ${subject}\n\n${text}\n--- END EMAIL ---\n`);
   return { providerId: "console" };
 };
 
 /** Render {{placeholder}} templates. Unknown placeholders are left intact. */
 export const renderTemplate = (tpl: string, vars: Record<string, string>) =>
   tpl.replace(/\{\{(\w+)\}\}/g, (m, key) => (key in vars ? vars[key] : m));
+
+/** A client's primary email plus any extra addresses, deduplicated. */
+export const clientEmails = (c: { email: string; extra_emails?: string[] | null }): string[] =>
+  Array.from(new Set([c.email, ...(c.extra_emails || [])].filter(Boolean)));

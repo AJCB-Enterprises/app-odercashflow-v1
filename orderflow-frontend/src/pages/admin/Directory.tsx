@@ -97,6 +97,9 @@ export function ClientDetail() {
           <p className="pagesub">
             {client.contact_name} · {client.email} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
           </p>
+          {client.extra_emails?.length > 0 && (
+            <p className="dim" style={{ marginTop: -8 }}>Also cc'd: {client.extra_emails.join(", ")}</p>
+          )}
         </div>
         <div className="menu-wrap">
           <button className="btn sm" disabled={deleting} onClick={() => { setEditing((s) => !s); setMenuOpen(false); }}>

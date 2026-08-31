@@ -1,6 +1,6 @@
 import { one, q, tx } from "../db";
 import { issueUploadToken, uploadUrl } from "../lib/tokens";
-import { renderTemplate, sendMail } from "../lib/email";
+import { clientEmails, renderTemplate, sendMail } from "../lib/email";
 import { peso, shortDate } from "../lib/numbering";
 import { notifyAdmins } from "../lib/notify";
 
@@ -60,14 +60,17 @@ interface DueInvoice {
   client_id: string;
   contact_name: string;
   email: string;
+  extra_emails?: string[];
 }
 
 /**
  * Sends one payment reminder email for an invoice and logs it (same
  * transaction, so a crash after sendMail can't double-send next tick).
  * Shared by the scheduled batch run and any real-time trigger (e.g. COD).
+ * Goes to the client's primary email plus any extra addresses on file.
  */
 export const sendPaymentReminder = async (inv: DueInvoice, template: string): Promise<void> => {
+  const recipients = clientEmails(inv);
   await tx(async (c) => {
     const rawToken = await issueUploadToken(inv.id, c);
     const subject = `Payment reminder — ${inv.invoice_no} ${
@@ -84,9 +87,9 @@ export const sendPaymentReminder = async (inv: DueInvoice, template: string): Pr
     const logRes = await c.query(
       `INSERT INTO reminder_logs (type, invoice_id, client_id, sent_to, subject)
        VALUES ('payment', $1, $2, $3, $4) RETURNING id`,
-      [inv.id, inv.client_id, inv.email, subject]
+      [inv.id, inv.client_id, recipients.join(", "), subject]
     );
-    const mail = await sendMail(inv.email, subject, body);
+    const mail = await sendMail(recipients, subject, body);
     await c.query("UPDATE reminder_logs SET provider_id = $2 WHERE id = $1", [logRes.rows[0].id, mail.providerId]);
   });
 };
@@ -100,7 +103,7 @@ const runPaymentReminders = async (s: Settings): Promise<number> => {
   const due = await q<DueInvoice>(
     `SELECT i.id, i.invoice_no, i.amount, i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
-            c.id AS client_id, c.contact_name, c.company_name, c.email
+            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
       WHERE i.status = 'unpaid'
@@ -128,8 +131,11 @@ const runPaymentReminders = async (s: Settings): Promise<number> => {
 
 /** Order reminders for orders still pending review, on the configured cadence. */
 const runOrderReminders = async (s: Settings): Promise<number> => {
-  const pending = await q(
-    `SELECT o.id, o.order_no, c.id AS client_id, c.contact_name, c.company_name, c.email
+  const pending = await q<{
+    id: string; order_no: string; client_id: string; contact_name: string; company_name: string;
+    email: string; extra_emails: string[];
+  }>(
+    `SELECT o.id, o.order_no, c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails
        FROM orders o
        JOIN clients c ON c.id = o.client_id
       WHERE o.status = 'pending'
@@ -144,6 +150,7 @@ const runOrderReminders = async (s: Settings): Promise<number> => {
 
   let sent = 0;
   for (const o of pending) {
+    const recipients = clientEmails(o);
     try {
       await tx(async (c) => {
         const subject = `Order reminder — ${o.order_no} is awaiting review`;
@@ -151,9 +158,9 @@ const runOrderReminders = async (s: Settings): Promise<number> => {
         const logRes = await c.query(
           `INSERT INTO reminder_logs (type, order_id, client_id, sent_to, subject)
            VALUES ('order', $1, $2, $3, $4) RETURNING id`,
-          [o.id, o.client_id, o.email, subject]
+          [o.id, o.client_id, recipients.join(", "), subject]
         );
-        const mail = await sendMail(o.email, subject, body);
+        const mail = await sendMail(recipients, subject, body);
         await c.query("UPDATE reminder_logs SET provider_id = $2 WHERE id = $1", [logRes.rows[0].id, mail.providerId]);
       });
       sent++;

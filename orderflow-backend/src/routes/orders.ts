@@ -5,7 +5,7 @@ import { one, q, tx } from "../db";
 import { clientScopeSql, requireAdmin, requireAgentPermission, requireAuth } from "../middleware/auth";
 import { nextDocNo, peso, shortDate } from "../lib/numbering";
 import { audit, notifyAdmins, notifyUser } from "../lib/notify";
-import { sendMail } from "../lib/email";
+import { clientEmails, sendMail } from "../lib/email";
 import { config } from "../config";
 import { readOrderAttachment, saveOrderAttachment, sniffFileType } from "../lib/storage";
 import { sendPaymentReminder } from "../worker/reminders";
@@ -251,12 +251,13 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
   if (!result) return res.status(409).json({ error: "Order is not pending review" });
 
   // Email outside the transaction: a mail failure must not roll back the approval.
-  const client = await one("SELECT company_name, contact_name, email FROM clients WHERE id = $1", [
-    result.order.client_id,
-  ]);
+  const client = await one<{ company_name: string; contact_name: string; email: string; extra_emails: string[] }>(
+    "SELECT company_name, contact_name, email, extra_emails FROM clients WHERE id = $1",
+    [result.order.client_id]
+  );
   if (client)
     sendMail(
-      client.email,
+      clientEmails(client),
       `Order ${result.order.order_no} approved — invoice ${result.invoice.invoice_no}`,
       `Hi ${client.contact_name}, your order ${result.order.order_no} has been approved. ` +
         `Invoice ${result.invoice.invoice_no} for ${peso(result.invoice.amount)} is due on ` +
@@ -281,6 +282,7 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
             client_id: result.order.client_id,
             contact_name: client.contact_name,
             email: client.email,
+            extra_emails: client.extra_emails,
           },
           settings.template
         );

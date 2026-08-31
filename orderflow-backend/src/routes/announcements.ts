@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { one, q } from "../db";
 import { requireAdmin, requireAuth } from "../middleware/auth";
-import { renderTemplate, sendMail } from "../lib/email";
+import { clientEmails, renderTemplate, sendMail } from "../lib/email";
 import { audit } from "../lib/notify";
 
 export const announcementsRouter = Router();
@@ -33,13 +33,15 @@ announcementsRouter.post("/", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const { subject, body } = parsed.data;
 
-  const clients = await q<{ email: string; contact_name: string }>("SELECT email, contact_name FROM clients");
+  const clients = await q<{ email: string; contact_name: string; extra_emails: string[] }>(
+    "SELECT email, contact_name, extra_emails FROM clients"
+  );
   if (!clients.length) return res.status(400).json({ error: "No clients in the directory to send to" });
 
   let sent = 0;
   for (const c of clients) {
     try {
-      await sendMail(c.email, subject, renderTemplate(body, { contact: c.contact_name }));
+      await sendMail(clientEmails(c), subject, renderTemplate(body, { contact: c.contact_name }));
       sent++;
     } catch (err: any) {
       console.error(`announcement failed for ${c.email}:`, err.message);
