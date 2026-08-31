@@ -49,6 +49,7 @@ export default function Shell() {
               <NavItem to="/admin/agents" label="Agent accounts" />
               <NavItem to="/admin/mapping" label="Agent–client mapping" />
               <NavItem to="/admin/directory" label="Customer directory" />
+              <NavItem to="/admin/announcements" label="Announcements" />
               <NavItem to="/notifications" label="Notifications" badge={unread} />
             </>
           ) : (

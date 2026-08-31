@@ -16,6 +16,7 @@ import Reminders from "./pages/admin/Reminders";
 import Agents from "./pages/admin/Agents";
 import Mapping from "./pages/admin/Mapping";
 import { Directory, ClientDetail } from "./pages/admin/Directory";
+import Announcements from "./pages/admin/Announcements";
 import { AgentClients, AgentNewOrder, AgentOrders, AgentInvoices } from "./pages/agent/AgentPages";
 
 const Home = () => {
@@ -46,6 +47,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/admin/mapping" element={<Mapping />} />
             <Route path="/admin/directory" element={<Directory />} />
             <Route path="/admin/directory/:id" element={<ClientDetail />} />
+            <Route path="/admin/announcements" element={<Announcements />} />
             <Route path="/agent/clients" element={<AgentClients />} />
             <Route path="/agent/new-order" element={<AgentNewOrder />} />
             <Route path="/agent/orders" element={<AgentOrders />} />

@@ -9,6 +9,7 @@ import { invoicesRouter } from "./routes/invoices";
 import { agentsRouter } from "./routes/agents";
 import { remindersRouter } from "./routes/reminders";
 import { notificationsRouter } from "./routes/notifications";
+import { announcementsRouter } from "./routes/announcements";
 import { publicRouter } from "./routes/public";
 import { startReminderWorker } from "./worker/reminders";
 
@@ -27,6 +28,7 @@ app.use("/invoices", invoicesRouter);
 app.use("/agents", agentsRouter);
 app.use("/reminders", remindersRouter);
 app.use("/notifications", notificationsRouter);
+app.use("/announcements", announcementsRouter);
 app.use("/", publicRouter); // GET/POST /u/:token
 
 // Final error handler — never leak internals.
