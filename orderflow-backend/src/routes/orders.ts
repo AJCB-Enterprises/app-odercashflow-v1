@@ -100,6 +100,9 @@ const OrderBody = z.object({
 /** Days until due for each payment term; COD invoices are due immediately. */
 const DUE_DAYS: Record<string, number> = { net_15: 15, net_30: 30, net_45: 45, cod: 0 };
 
+const PAYMENT_TERM_LABELS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", cod: "COD" };
+const VAT_STATUS_LABELS: Record<string, string> = { vat_exempt: "SO/ DR", vat_inclusive: "VAT-Inclusive", zero_rated: "Zero-Rated" };
+
 /**
  * POST /orders — agent creates a sales order on behalf of an assigned client.
  * Multipart: "items" arrives as a JSON string (siblings of an optional file
@@ -283,6 +286,48 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
         );
       })
       .catch((e) => console.error("COD real-time reminder failed:", e.message));
+  }
+
+  // Internal copy of the full approved order — sales/fulfillment don't have
+  // app logins, so this is their only view into what was just approved.
+  if (config.salesForwardEmail && client) {
+    Promise.all([
+      result.order.created_by
+        ? one<{ full_name: string }>("SELECT full_name FROM users WHERE id = $1", [result.order.created_by])
+        : Promise.resolve(null),
+      q<{ description: string; qty: string; unit_price: string }>(
+        "SELECT description, qty, unit_price FROM order_items WHERE order_id = $1",
+        [result.order.id]
+      ),
+    ])
+      .then(([agent, items]) => {
+        const lines = items
+          .map(
+            (it) =>
+              `  - ${it.description} — qty ${Number(it.qty)} x ${peso(it.unit_price)} = ${peso(
+                Number(it.qty) * Number(it.unit_price)
+              )}`
+          )
+          .join("\n");
+        const poLine = result.order.po_number || result.order.po_date
+          ? `Client's PO: ${result.order.po_number || "no number given"}${
+              result.order.po_date ? ` (dated ${shortDate(result.order.po_date)})` : ""
+            }\n`
+          : "";
+        const body =
+          `Client: ${client.company_name} (${client.contact_name})\n` +
+          `Agent: ${agent?.full_name || "—"}\n` +
+          `Sales Order: ${result.order.order_no}\n` +
+          `Sales Invoice: ${result.invoice.invoice_no}\n` +
+          `Payment terms: ${PAYMENT_TERM_LABELS[result.order.payment_terms] || result.order.payment_terms}\n` +
+          `VAT status: ${VAT_STATUS_LABELS[result.order.vat_status] || result.order.vat_status}\n` +
+          poLine +
+          `\nLine items:\n${lines}\n\n` +
+          `Total: ${peso(result.invoice.amount)}\n` +
+          `Due: ${shortDate(result.invoice.due_date)}`;
+        return sendMail(config.salesForwardEmail, `Order approved — ${result.order.order_no}`, body);
+      })
+      .catch((e) => console.error("sales forward email failed:", e.message));
   }
 
   res.json(result);

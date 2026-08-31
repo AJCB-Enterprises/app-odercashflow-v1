@@ -17,6 +17,7 @@ export const config = {
   smtpUrl: process.env.SMTP_URL || "",
   resendApiKey: process.env.RESEND_API_KEY || "",
   mailFrom: process.env.MAIL_FROM || "OrderFlow Billing <billing@example.com>",
+  salesForwardEmail: process.env.SALES_FORWARD_EMAIL || "",
   appTz: process.env.APP_TZ || "Asia/Manila",
   tokenTtlDays: Number(process.env.TOKEN_TTL_DAYS || 30),
   corsOrigin: process.env.CORS_ORIGIN || "*",
