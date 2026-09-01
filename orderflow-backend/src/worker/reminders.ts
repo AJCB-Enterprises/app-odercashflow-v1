@@ -95,9 +95,51 @@ export const sendPaymentReminder = async (inv: DueInvoice, template: string): Pr
 };
 
 /**
+ * Sends one Statement of Account covering several invoices for the same
+ * client, instead of a separate email per invoice. Each invoice still gets
+ * its own upload token and its own reminder_logs row (so the per-invoice
+ * frequency cooldown keeps working), but only one email goes out.
+ */
+export const sendStatementOfAccount = async (invoices: DueInvoice[]): Promise<void> => {
+  const first = invoices[0];
+  const recipients = clientEmails(first);
+  await tx(async (c) => {
+    const tokens: string[] = [];
+    for (const inv of invoices) tokens.push(await issueUploadToken(inv.id, c));
+
+    const total = invoices.reduce((s, inv) => s + Number(inv.amount), 0);
+    const lines = invoices.map(
+      (inv, i) =>
+        `  - ${inv.invoice_no} — ${peso(inv.amount)} — due ${shortDate(inv.due_date)}${
+          inv.is_overdue ? " (OVERDUE)" : ""
+        }\n    Upload receipt: ${uploadUrl(tokens[i])}`
+    );
+    const subject = `Statement of Account — ${invoices.length} invoice(s) outstanding`;
+    const body =
+      `Hi ${first.contact_name}, this is a Statement of Account from AJCB Enterprises Inc. summarizing your outstanding invoices.\n\n` +
+      lines.join("\n\n") +
+      `\n\nTotal due: ${peso(total)}\n\nPlease settle at your earliest convenience.`;
+
+    const logIds: string[] = [];
+    for (const inv of invoices) {
+      const logRes = await c.query(
+        `INSERT INTO reminder_logs (type, invoice_id, client_id, sent_to, subject)
+         VALUES ('payment', $1, $2, $3, $4) RETURNING id`,
+        [inv.id, inv.client_id, recipients.join(", "), subject]
+      );
+      logIds.push(logRes.rows[0].id);
+    }
+    const mail = await sendMail(recipients, subject, body);
+    await c.query("UPDATE reminder_logs SET provider_id = $1 WHERE id = ANY($2::uuid[])", [mail.providerId, logIds]);
+  });
+};
+
+/**
  * Payment reminders. An invoice qualifies when it is unpaid, inside the
  * days-before window (or overdue), and its last payment reminder is older than
- * frequency_days. Each send gets a fresh upload token.
+ * frequency_days. Each send gets a fresh upload token. Clients with 2+
+ * invoices due at once get one consolidated Statement of Account instead of
+ * separate emails.
  */
 const runPaymentReminders = async (s: Settings): Promise<number> => {
   const due = await q<DueInvoice>(
@@ -117,13 +159,17 @@ const runPaymentReminders = async (s: Settings): Promise<number> => {
     [s.days_before, s.frequency_days]
   );
 
+  const byClient = new Map<string, DueInvoice[]>();
+  for (const inv of due) byClient.set(inv.client_id, [...(byClient.get(inv.client_id) || []), inv]);
+
   let sent = 0;
-  for (const inv of due) {
+  for (const invoices of byClient.values()) {
     try {
-      await sendPaymentReminder(inv, s.template);
-      sent++;
+      if (invoices.length >= 2) await sendStatementOfAccount(invoices);
+      else await sendPaymentReminder(invoices[0], s.template);
+      sent += invoices.length;
     } catch (err: any) {
-      console.error(`payment reminder failed for ${inv.invoice_no}:`, err.message);
+      console.error(`payment reminder failed for client ${invoices[0].client_id}:`, err.message);
     }
   }
   return sent;
