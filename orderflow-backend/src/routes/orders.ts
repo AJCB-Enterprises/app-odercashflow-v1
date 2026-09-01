@@ -58,7 +58,8 @@ ordersRouter.get("/:id", async (req, res) => {
   if (scope.param) params.push(scope.param);
 
   const order = await one(
-    `SELECT o.*, c.company_name, c.contact_name, c.email AS client_email, u.full_name AS agent_name
+    `SELECT o.*, c.company_name, c.contact_name, c.email AS client_email, u.full_name AS agent_name,
+            c.tin, c.bir_cor_name, c.peza_cert_name
        FROM orders o JOIN clients c ON c.id = o.client_id
        LEFT JOIN users u ON u.id = o.created_by
       WHERE o.id = $1${scope.sql}`,

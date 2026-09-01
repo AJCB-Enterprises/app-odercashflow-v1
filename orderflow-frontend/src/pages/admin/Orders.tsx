@@ -60,6 +60,14 @@ export function OrderDetail() {
     }
   };
 
+  const viewClientDoc = async (type: "bir_cor" | "peza_cert") => {
+    try {
+      await api.openBlob(`/clients/${order.client_id}/documents/${type}`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
   const decide = async (action: "approve" | "reject") => {
     setBusy(true);
     try {
@@ -102,6 +110,26 @@ export function OrderDetail() {
         {order.status === "rejected" && <span className="stamp red">Rejected</span>}
         {order.status === "pending" && <span className="stamp amber">For review</span>}
       </div>
+
+      {order.status === "approved" && (
+        <Card title="Client tax documents" hint="for issuing the Sales Invoice">
+          <p style={{ marginBottom: 10 }}><span className="dim">TIN:</span> {order.tin || "not on file"}</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <span className="dim" style={{ minWidth: 150 }}>BIR COR 2303:</span>
+            {order.bir_cor_name
+              ? <><span>{order.bir_cor_name}</span>
+                  <button className="btn sm ghost" onClick={() => viewClientDoc("bir_cor")}>View</button></>
+              : <span className="dim">not uploaded</span>}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span className="dim" style={{ minWidth: 150 }}>PEZA Certificate:</span>
+            {order.peza_cert_name
+              ? <><span>{order.peza_cert_name}</span>
+                  <button className="btn sm ghost" onClick={() => viewClientDoc("peza_cert")}>View</button></>
+              : <span className="dim">not uploaded</span>}
+          </div>
+        </Card>
+      )}
 
       <Card title="Order details" pad={false}>
         <table className="ledger">

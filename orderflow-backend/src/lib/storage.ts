@@ -37,6 +37,22 @@ export const saveOrderAttachment = async (orderId: string, ext: string, data: Bu
 
 export const readOrderAttachment = async (key: string): Promise<Buffer> => fs.promises.readFile(safePath(key));
 
+/** docType is a fixed key like "bir_cor" or "peza_cert" — never user-supplied free text. */
+export const saveClientDocument = async (
+  clientId: string,
+  docType: string,
+  ext: string,
+  data: Buffer
+): Promise<string> => {
+  const key = path.join("clients", clientId, `${docType}-${crypto.randomUUID()}.${ext}`);
+  const full = safePath(key);
+  await fs.promises.mkdir(path.dirname(full), { recursive: true });
+  await fs.promises.writeFile(full, data);
+  return key;
+};
+
+export const readClientDocument = async (key: string): Promise<Buffer> => fs.promises.readFile(safePath(key));
+
 /** Magic-byte sniffing — trust file contents, not the client's Content-Type. */
 export const sniffFileType = (buf: Buffer): { ext: string; mime: string } | null => {
   if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)

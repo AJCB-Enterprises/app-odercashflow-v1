@@ -101,6 +101,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
   const [paymentTerms, setPaymentTerms] = useState("net_30");
   const [vatStatus, setVatStatus] = useState("vat_inclusive");
   const [extraEmails, setExtraEmails] = useState("");
+  const [tin, setTin] = useState("");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -116,6 +117,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
         payment_terms: paymentTerms,
         vat_status: vatStatus,
         extra_emails: parseEmailList(extraEmails),
+        tin: tin.trim() || undefined,
         ...(agents ? { agent_id: agentId || null } : {}),
       });
       toast(`${companyName} added to the directory.`);
@@ -144,6 +146,8 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
       <input id="ncp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
       <label className="f" htmlFor="nca">Address</label>
       <input id="nca" className="f" value={address} onChange={(e) => setAddress(e.target.value)} />
+      <label className="f" htmlFor="ntin">Tax Identification Number (TIN)</label>
+      <input id="ntin" className="f" value={tin} onChange={(e) => setTin(e.target.value)} />
       <label className="f" htmlFor="nct">Payment terms</label>
       <select id="nct" className="f" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
         {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -168,9 +172,55 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
   );
 }
 
+/** BIR COR 2303 / PEZA Certificate — uploads immediately on file selection. */
+function ClientDocUpload({ clientId, type, label, currentName, onUploaded }: {
+  clientId: string; type: "bir_cor" | "peza_cert"; label: string; currentName?: string;
+  onUploaded: (name: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      await api.postForm(`/clients/${clientId}/documents/${type}`, form);
+      onUploaded(file.name);
+      toast(`${label} uploaded.`);
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const view = async () => {
+    try {
+      await api.openBlob(`/clients/${clientId}/documents/${type}`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <label className="f">{label}</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {currentName
+          ? <><span className="dim" style={{ fontSize: 13 }}>{currentName}</span>
+              <button className="btn sm ghost" type="button" onClick={view}>View</button></>
+          : <span className="dim" style={{ fontSize: 13 }}>Not uploaded</span>}
+        <input type="file" accept=".jpg,.jpeg,.png,.pdf" disabled={busy}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
+      </div>
+    </div>
+  );
+}
+
 /* ---- edit client form (admin only, can reassign agent) ---- */
 export function EditClientForm({ client, agents, onDone, onCancel }: {
-  client: { id: string; company_name: string; contact_name: string; email: string; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[] };
+  client: { id: string; company_name: string; contact_name: string; email: string; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[]; tin?: string; bir_cor_name?: string; peza_cert_name?: string };
   agents: { id: string; full_name: string }[];
   onDone: () => void;
   onCancel: () => void;
@@ -185,6 +235,9 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
   const [paymentTerms, setPaymentTerms] = useState(client.payment_terms || "net_30");
   const [vatStatus, setVatStatus] = useState(client.vat_status || "vat_inclusive");
   const [extraEmails, setExtraEmails] = useState((client.extra_emails || []).join("\n"));
+  const [tin, setTin] = useState(client.tin || "");
+  const [birCorName, setBirCorName] = useState(client.bir_cor_name || "");
+  const [pezaCertName, setPezaCertName] = useState(client.peza_cert_name || "");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -202,6 +255,7 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
         payment_terms: paymentTerms,
         vat_status: vatStatus,
         extra_emails: parseEmailList(extraEmails),
+        tin: tin.trim() || undefined,
       });
       toast("Client details updated.");
       onDone();
@@ -229,6 +283,10 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
       <input id="ecp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
       <label className="f" htmlFor="eca">Address</label>
       <input id="eca" className="f" value={address} onChange={(e) => setAddress(e.target.value)} />
+      <label className="f" htmlFor="etin">Tax Identification Number (TIN)</label>
+      <input id="etin" className="f" value={tin} onChange={(e) => setTin(e.target.value)} />
+      <ClientDocUpload clientId={client.id} type="bir_cor" label="BIR COR 2303" currentName={birCorName} onUploaded={setBirCorName} />
+      <ClientDocUpload clientId={client.id} type="peza_cert" label="PEZA Certificate (Zero-Rated clients)" currentName={pezaCertName} onUploaded={setPezaCertName} />
       <label className="f" htmlFor="ect">Payment terms</label>
       <select id="ect" className="f" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
         {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
