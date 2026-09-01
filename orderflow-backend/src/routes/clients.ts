@@ -159,19 +159,21 @@ clientsRouter.post(
   requireAdmin,
   uploadDoc.single("file"),
   async (req, res) => {
-    const prefix = DOC_COLUMNS[req.params.type];
+    const clientId = String(req.params.id);
+    const docType = String(req.params.type);
+    const prefix = DOC_COLUMNS[docType];
     if (!prefix) return res.status(404).json({ error: "Unknown document type" });
     if (!req.file) return res.status(400).json({ error: "Attach a file (JPG, PNG, or PDF)" });
     const kind = sniffFileType(req.file.buffer);
     if (!kind) return res.status(400).json({ error: "File must be a JPG, PNG, or PDF" });
 
-    const key = await saveClientDocument(req.params.id, prefix, kind.ext, req.file.buffer);
+    const key = await saveClientDocument(clientId, prefix, kind.ext, req.file.buffer);
     const row = await one(
       `UPDATE clients SET ${prefix}_key = $2, ${prefix}_name = $3, ${prefix}_mime = $4, ${prefix}_size_bytes = $5,
               updated_at = now()
         WHERE id = $1 RETURNING *`,
       [
-        req.params.id,
+        clientId,
         key,
         (req.file.originalname || `${prefix}.${kind.ext}`).slice(0, 200),
         kind.mime,
@@ -179,22 +181,24 @@ clientsRouter.post(
       ]
     );
     if (!row) return res.status(404).json({ error: "Client not found" });
-    await audit(req.user!.id, "client.document_uploaded", "client", row.id, { type: req.params.type });
+    await audit(req.user!.id, "client.document_uploaded", "client", row.id, { type: docType });
     res.status(201).json(row);
   }
 );
 
 /** GET /clients/:id/documents/:type — admin views/downloads the stored document. */
 clientsRouter.get("/:id/documents/:type", requireAdmin, async (req, res) => {
-  const prefix = DOC_COLUMNS[req.params.type];
+  const clientId = String(req.params.id);
+  const docType = String(req.params.type);
+  const prefix = DOC_COLUMNS[docType];
   if (!prefix) return res.status(404).json({ error: "Unknown document type" });
 
   const client = await one<Record<string, any>>(
     `SELECT ${prefix}_key AS key, ${prefix}_name AS name, ${prefix}_mime AS mime FROM clients WHERE id = $1`,
-    [req.params.id]
+    [clientId]
   );
   if (!client || !client.key)
-    return res.status(404).json({ error: `No ${DOC_LABELS[req.params.type]} uploaded for this client` });
+    return res.status(404).json({ error: `No ${DOC_LABELS[docType]} uploaded for this client` });
   const data = await readClientDocument(client.key);
   res.setHeader("Content-Type", client.mime);
   res.setHeader("Content-Disposition", `inline; filename="${String(client.name).replace(/"/g, "")}"`);
