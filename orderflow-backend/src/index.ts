@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { config } from "./config";
 import { authRouter } from "./routes/auth";
 import { dashboardRouter } from "./routes/dashboard";
@@ -15,6 +16,11 @@ import { startReminderWorker } from "./worker/reminders";
 
 const app = express();
 app.set("trust proxy", 1);
+// crossOriginResourcePolicy is relaxed to cross-origin since the frontend
+// (app.ajcb.com.ph) and this API (api.ajcb.com.ph) are deliberately on
+// different subdomains — the default same-origin policy would otherwise
+// block the frontend from loading receipts/attachments/documents.
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors({ origin: config.corsOrigin === "*" ? true : config.corsOrigin.split(",") }));
 app.use(express.json({ limit: "256kb" }));
 

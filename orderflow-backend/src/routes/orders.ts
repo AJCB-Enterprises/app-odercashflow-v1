@@ -7,6 +7,7 @@ import { nextDocNo, peso, shortDate } from "../lib/numbering";
 import { audit, notifyAdmins, notifyUser } from "../lib/notify";
 import { clientEmails, sendMail } from "../lib/email";
 import { config } from "../config";
+import { decryptField } from "../lib/crypto";
 import { readOrderAttachment, saveOrderAttachment, sanitizeFilename, validateUpload } from "../lib/storage";
 import rateLimit from "express-rate-limit";
 import { sendPaymentReminder } from "../worker/reminders";
@@ -76,6 +77,7 @@ ordersRouter.get("/:id", async (req, res) => {
     params
   );
   if (!order) return res.status(404).json({ error: "Order not found" });
+  if (order.tin) order.tin = decryptField(order.tin);
 
   const [items, pendingInvoices] = await Promise.all([
     q("SELECT id, description, qty, unit_price FROM order_items WHERE order_id = $1", [order.id]),

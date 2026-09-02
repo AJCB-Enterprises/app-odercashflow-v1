@@ -11,6 +11,7 @@ import { audit } from "../lib/notify";
 export const authRouter = Router();
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true });
+const passwordChangeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true });
 
 const LoginBody = z.object({ email: z.string().email(), password: z.string().min(1) });
 
@@ -40,7 +41,7 @@ const ChangePasswordBody = z.object({
 });
 
 /** PATCH /auth/password — self-service password change; requires the current password. */
-authRouter.patch("/password", requireAuth, async (req, res) => {
+authRouter.patch("/password", requireAuth, passwordChangeLimiter, async (req, res) => {
   const parsed = ChangePasswordBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const { current_password, new_password } = parsed.data;
