@@ -216,6 +216,9 @@ export function AgentInvoices() {
                     {i.status !== "paid" && i.status !== "void" && Number(i.balance_due) !== Number(i.amount) && (
                       <div className="dim" style={{ fontSize: 12.5 }}>Balance: {peso(i.balance_due)}</div>
                     )}
+                    {Number(i.total_ewt) > 0 && (
+                      <div className="dim" style={{ fontSize: 12.5 }}>Includes {peso(i.total_ewt)} EWT</div>
+                    )}
                   </td>
                   <td className="num">{fmtDate(i.due_date)}</td>
                   <td><InvoiceChip inv={i} /></td>

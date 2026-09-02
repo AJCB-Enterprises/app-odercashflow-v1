@@ -17,6 +17,9 @@ invoicesRouter.use(requireAuth);
 const BALANCE_DUE_SQL =
   "(i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0))";
 
+/** Total EWT applied across all payments — shown even after the invoice is fully paid. */
+const TOTAL_EWT_SQL = "COALESCE((SELECT SUM(ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)";
+
 /** Rounding tolerance (pesos) below which a balance counts as fully settled. */
 const BALANCE_TOLERANCE = 1.0;
 
@@ -44,6 +47,7 @@ invoicesRouter.get("/", requireAgentPermission("can_view_invoices"), async (req,
     `SELECT i.id, i.invoice_no, i.amount, i.due_date, i.status, i.paid_at,
             (i.status = 'unpaid' AND i.due_date < CURRENT_DATE) AS is_overdue,
             ${BALANCE_DUE_SQL} AS balance_due,
+            ${TOTAL_EWT_SQL} AS total_ewt,
             c.id AS client_id, c.company_name,
             r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at,
             r.ewt_name
