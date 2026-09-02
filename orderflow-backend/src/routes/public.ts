@@ -7,6 +7,17 @@ import { saveEwtForm, saveReceipt, sanitizeFilename, validateUpload } from "../l
 import { notifyAdmins, notifyUser, audit } from "../lib/notify";
 import { config } from "../config";
 
+const setInvoiceEwt = (
+  invoiceId: string,
+  ewt: { key: string; name: string; mime: string; size: number },
+  c: { query: (sql: string, params: any[]) => Promise<any> }
+) =>
+  c.query(
+    `UPDATE invoices SET ewt_key = $2, ewt_name = $3, ewt_mime = $4, ewt_size_bytes = $5, ewt_submitted_at = now()
+      WHERE id = $1`,
+    [invoiceId, ewt.key, ewt.name, ewt.mime, ewt.size]
+  );
+
 /**
  * Public, token-authenticated routes for the client upload page.
  * The token in the URL is the credential (see architecture §2.1):
@@ -41,12 +52,16 @@ const uploadFields = upload.fields([
   { name: "file", maxCount: 1 },
   { name: "ewt_file", maxCount: 1 },
 ]);
+const uploadSingle = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
+});
 
 const NOT_FOUND = { error: "This link is invalid or has expired. Please use the latest reminder email." };
 
-/** GET /u/:token — the data behind the upload page. */
+/** GET /u/:token — the data behind the payment-receipt upload page. */
 publicRouter.get("/u/:token", async (req, res) => {
-  const inv = await resolveUploadToken(String(req.params.token));
+  const inv = await resolveUploadToken(String(req.params.token), "receipt");
   if (!inv) return res.status(404).json(NOT_FOUND);
   res.json({
     invoice_no: inv.invoice_no,
@@ -69,7 +84,7 @@ publicRouter.get("/u/:token", async (req, res) => {
  * tax on this payment. Both are validated and stored the same way.
  */
 publicRouter.post("/u/:token/receipt", uploadLimiter, uploadFields, async (req, res) => {
-  const inv = await resolveUploadToken(String(req.params.token));
+  const inv = await resolveUploadToken(String(req.params.token), "receipt");
   if (!inv) return res.status(404).json(NOT_FOUND);
   if (inv.status === "paid" || inv.status === "void") return res.status(404).json(NOT_FOUND);
 
@@ -94,13 +109,12 @@ publicRouter.post("/u/:token/receipt", uploadLimiter, uploadFields, async (req, 
 
   await tx(async (c) => {
     await c.query(
-      `INSERT INTO receipts (invoice_id, storage_key, original_name, mime_type, size_bytes, uploaded_via, ewt_key, ewt_name, ewt_mime, ewt_size_bytes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        inv.invoice_id, storageKey, originalName, kind.mime, receiptFile.size, inv.token_id,
-        ewtKey, ewtName, ewtKind?.mime ?? null, ewtFile?.size ?? null,
-      ]
+      `INSERT INTO receipts (invoice_id, storage_key, original_name, mime_type, size_bytes, uploaded_via)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [inv.invoice_id, storageKey, originalName, kind.mime, receiptFile.size, inv.token_id]
     );
+    if (ewtKey && ewtName && ewtKind && ewtFile)
+      await setInvoiceEwt(inv.invoice_id, { key: ewtKey, name: ewtName, mime: ewtKind.mime, size: ewtFile.size }, c);
     await c.query("UPDATE invoices SET status = 'receipt_uploaded' WHERE id = $1 AND status = 'unpaid'", [
       inv.invoice_id,
     ]);
@@ -121,5 +135,50 @@ publicRouter.post("/u/:token/receipt", uploadLimiter, uploadFields, async (req, 
   res.status(201).json({
     ok: true,
     message: `Receipt received for ${inv.invoice_no}. The billing team will verify it and mark the invoice paid.`,
+  });
+});
+
+const EWT_NOT_FOUND = { error: "This link is invalid or has expired. Please ask your billing contact for a new one." };
+
+/** GET /e/:token — the data behind the standalone BIR 2307 (EWT) upload page. */
+publicRouter.get("/e/:token", async (req, res) => {
+  const inv = await resolveUploadToken(String(req.params.token), "ewt");
+  if (!inv) return res.status(404).json(EWT_NOT_FOUND);
+  res.json({
+    invoice_no: inv.invoice_no,
+    billed_to: inv.company_name,
+    contact_name: inv.contact_name,
+    already_submitted: !!inv.ewt_name,
+    note: "This page is only for submitting BIR Form 2307. It does not affect your invoice's payment status.",
+  });
+});
+
+/**
+ * POST /e/:token — multipart field "file" (required, JPG/PNG/PDF): the
+ * client's BIR Form 2307. Unlike the payment-receipt link, this stays valid
+ * even after the invoice is fully paid — it's meant for clients who settle
+ * payment first and send the form later.
+ */
+publicRouter.post("/e/:token", uploadLimiter, uploadSingle.single("file"), async (req, res) => {
+  const inv = await resolveUploadToken(String(req.params.token), "ewt");
+  if (!inv) return res.status(404).json(EWT_NOT_FOUND);
+  if (inv.status === "void") return res.status(404).json(EWT_NOT_FOUND);
+  if (!req.file) return res.status(400).json({ error: "Attach your BIR Form 2307 (JPG, PNG, or PDF)" });
+
+  const kind = validateUpload(req.file);
+  if (!kind) return res.status(400).json({ error: "BIR Form 2307 must be a JPG, PNG, or PDF" });
+
+  const ewtKey = await saveEwtForm(inv.invoice_id, kind.ext, req.file.buffer);
+  const ewtName = sanitizeFilename(req.file.originalname, `2307.${kind.ext}`);
+
+  await tx(async (c) => {
+    await setInvoiceEwt(inv.invoice_id, { key: ewtKey, name: ewtName, mime: kind.mime, size: req.file!.size }, c);
+    await notifyAdmins(`${inv.company_name} submitted a BIR 2307 form for ${inv.invoice_no}.`, `/invoices/${inv.invoice_id}`, c);
+    await audit(null, "ewt.uploaded", "invoice", inv.invoice_id, { via_token: inv.token_id, file: ewtName }, c);
+  });
+
+  res.status(201).json({
+    ok: true,
+    message: `BIR Form 2307 received for ${inv.invoice_no}. Thank you.`,
   });
 });

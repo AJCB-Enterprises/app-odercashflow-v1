@@ -88,6 +88,23 @@ export function ClientDetail() {
     }
   };
 
+  const viewEwt = async (invoiceId: string) => {
+    try {
+      await api.openBlob(`/invoices/${invoiceId}/receipt/ewt`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
+  const sendEwtLink = async (invoiceId: string, invoiceNo: string) => {
+    try {
+      await api.post(`/invoices/${invoiceId}/ewt-link`);
+      toast(`BIR 2307 request sent for ${invoiceNo}.`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
   return (
     <>
       <button className="back" onClick={() => navigate("/admin/directory")}>← Back to directory</button>
@@ -160,7 +177,7 @@ export function ClientDetail() {
 
       <Card title="Invoice status" pad={false}>
         <table className="ledger">
-          <thead><tr><th>Invoice</th><th className="right">Amount</th><th>Due</th><th>Status</th></tr></thead>
+          <thead><tr><th>Invoice</th><th className="right">Amount</th><th>Due</th><th>Status</th><th /></tr></thead>
           <tbody>
             {invoices.map((i: any) => (
               <tr key={i.id}>
@@ -173,12 +190,25 @@ export function ClientDetail() {
                   {Number(i.total_ewt) > 0 && (
                     <div className="dim" style={{ fontSize: 12.5 }}>Includes {peso(i.total_ewt)} EWT</div>
                   )}
+                  {i.ewt_name && (
+                    <div className="dim" style={{ fontSize: 12.5 }}>2307 on file</div>
+                  )}
                 </td>
                 <td className="num">{fmtDate(i.due_date)}</td>
                 <td><InvoiceChip inv={i} /></td>
+                <td className="right" style={{ whiteSpace: "nowrap" }}>
+                  {i.ewt_name && (
+                    <>
+                      <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>{" "}
+                    </>
+                  )}
+                  {i.status !== "void" && (
+                    <button className="btn sm ghost" onClick={() => sendEwtLink(i.id, i.invoice_no)}>Send 2307 link</button>
+                  )}
+                </td>
               </tr>
             ))}
-            {!invoices.length && <tr><td colSpan={4} className="empty">No invoices yet.</td></tr>}
+            {!invoices.length && <tr><td colSpan={5} className="empty">No invoices yet.</td></tr>}
           </tbody>
         </table>
       </Card>

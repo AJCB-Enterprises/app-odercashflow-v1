@@ -93,7 +93,7 @@ clientsRouter.get("/:id", async (req, res) => {
       [req.params.id]
     ),
     q(
-      `SELECT id, invoice_no, amount, due_date, status,
+      `SELECT id, invoice_no, amount, due_date, status, ewt_name,
               (status = 'unpaid' AND due_date < CURRENT_DATE) AS is_overdue,
               (amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0)) AS balance_due,
               COALESCE((SELECT SUM(ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0) AS total_ewt

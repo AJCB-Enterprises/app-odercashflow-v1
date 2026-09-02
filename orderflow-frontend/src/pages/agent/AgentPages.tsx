@@ -219,6 +219,9 @@ export function AgentInvoices() {
                     {Number(i.total_ewt) > 0 && (
                       <div className="dim" style={{ fontSize: 12.5 }}>Includes {peso(i.total_ewt)} EWT</div>
                     )}
+                    {i.ewt_name && (
+                      <div className="dim" style={{ fontSize: 12.5 }}>2307 on file</div>
+                    )}
                   </td>
                   <td className="num">{fmtDate(i.due_date)}</td>
                   <td><InvoiceChip inv={i} /></td>

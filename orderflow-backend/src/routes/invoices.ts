@@ -2,8 +2,9 @@ import { Router } from "express";
 import { z } from "zod";
 import { one, q, tx } from "../db";
 import { clientScopeSql, requireAdmin, requireAgentPermission, requireAuth } from "../middleware/auth";
-import { revokeInvoiceTokens } from "../lib/tokens";
+import { ewtUploadUrl, issueUploadToken, revokeInvoiceTokens } from "../lib/tokens";
 import { audit } from "../lib/notify";
+import { clientEmails, sendMail } from "../lib/email";
 import { readEwtForm, readReceipt } from "../lib/storage";
 
 export const invoicesRouter = Router();
@@ -48,13 +49,13 @@ invoicesRouter.get("/", requireAgentPermission("can_view_invoices"), async (req,
             (i.status = 'unpaid' AND i.due_date < CURRENT_DATE) AS is_overdue,
             ${BALANCE_DUE_SQL} AS balance_due,
             ${TOTAL_EWT_SQL} AS total_ewt,
+            i.ewt_name,
             c.id AS client_id, c.company_name,
-            r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at,
-            r.ewt_name
+            r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
        LEFT JOIN LATERAL (
-         SELECT id, original_name, uploaded_at, ewt_name FROM receipts
+         SELECT id, original_name, uploaded_at FROM receipts
           WHERE invoice_id = i.id ORDER BY uploaded_at DESC LIMIT 1
        ) r ON TRUE
        ${where}${scope.sql}
@@ -81,19 +82,50 @@ invoicesRouter.get("/:id/receipt", requireAdmin, async (req, res) => {
 });
 
 /**
- * GET /invoices/:id/receipt/ewt — streams the client's BIR Form 2307 (EWT),
- * if they uploaded one alongside their receipt.
+ * GET /invoices/:id/receipt/ewt — streams the client's BIR Form 2307 (EWT)
+ * on file for this invoice, however it got there: bundled with a receipt, or
+ * submitted separately (possibly after the invoice was already paid).
  */
 invoicesRouter.get("/:id/receipt/ewt", requireAdmin, async (req, res) => {
-  const receipt = await one(
-    "SELECT ewt_key, ewt_name, ewt_mime FROM receipts WHERE invoice_id = $1 AND ewt_key IS NOT NULL ORDER BY uploaded_at DESC LIMIT 1",
+  const inv = await one(
+    "SELECT ewt_key, ewt_name, ewt_mime FROM invoices WHERE id = $1 AND ewt_key IS NOT NULL",
     [req.params.id]
   );
-  if (!receipt) return res.status(404).json({ error: "No BIR 2307 form uploaded for this invoice" });
-  const data = await readEwtForm(receipt.ewt_key);
-  res.setHeader("Content-Type", receipt.ewt_mime);
-  res.setHeader("Content-Disposition", `inline; filename="${receipt.ewt_name.replace(/"/g, "")}"`);
+  if (!inv) return res.status(404).json({ error: "No BIR 2307 form uploaded for this invoice" });
+  const data = await readEwtForm(inv.ewt_key);
+  res.setHeader("Content-Type", inv.ewt_mime);
+  res.setHeader("Content-Disposition", `inline; filename="${inv.ewt_name.replace(/"/g, "")}"`);
   res.send(data);
+});
+
+/**
+ * POST /invoices/:id/ewt-link — admin requests the client's BIR Form 2307
+ * for an invoice that's already settled (or otherwise didn't come bundled
+ * with the receipt). Emails a secure link that keeps working even after the
+ * invoice is fully paid, since payment-receipt links are revoked at that
+ * point but this is a different purpose.
+ */
+invoicesRouter.post("/:id/ewt-link", requireAdmin, async (req, res) => {
+  const inv = await one<{ id: string; invoice_no: string; client_id: string }>(
+    "SELECT id, invoice_no, client_id FROM invoices WHERE id = $1 AND status != 'void'",
+    [req.params.id]
+  );
+  if (!inv) return res.status(404).json({ error: "Invoice not found" });
+  const client = await one<{ company_name: string; contact_name: string; email: string; extra_emails: string[] }>(
+    "SELECT company_name, contact_name, email, extra_emails FROM clients WHERE id = $1",
+    [inv.client_id]
+  );
+  if (!client) return res.status(404).json({ error: "Client not found" });
+
+  const rawToken = await issueUploadToken(inv.id, undefined, "ewt");
+  await sendMail(
+    clientEmails(client),
+    `Please submit your BIR Form 2307 for ${inv.invoice_no}`,
+    `Hi ${client.contact_name}, could you please submit your BIR Form 2307 (Certificate of Creditable ` +
+      `Tax Withheld) for invoice ${inv.invoice_no}?\n\nUpload it here (secure link, no login needed):\n${ewtUploadUrl(rawToken)}`
+  );
+  await audit(req.user!.id, "invoice.ewt_link_sent", "invoice", inv.id, { invoice_no: inv.invoice_no });
+  res.json({ ok: true, sent_to: clientEmails(client) });
 });
 
 const PaymentBody = z.object({
@@ -155,7 +187,7 @@ invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
     );
 
     if (fullyPaid) {
-      await revokeInvoiceTokens(inv.id, c);
+      await revokeInvoiceTokens(inv.id, c, "receipt");
       await audit(user.id, "invoice.marked_paid", "invoice", inv.id, { invoice_no: inv.invoice_no }, c);
     } else {
       await audit(

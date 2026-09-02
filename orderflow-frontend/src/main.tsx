@@ -7,6 +7,7 @@ import { ToastProvider } from "./components";
 import Shell from "./Shell";
 import Login from "./pages/Login";
 import Upload from "./pages/Upload";
+import EwtUpload from "./pages/EwtUpload";
 import Notifications from "./pages/Notifications";
 import Account from "./pages/Account";
 import Dashboard from "./pages/admin/Dashboard";
@@ -33,6 +34,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/login" element={<Login />} />
           {/* Public: emailed secure link lands here — no login required */}
           <Route path="/u/:token" element={<Upload />} />
+          <Route path="/e/:token" element={<EwtUpload />} />
 
           <Route element={<Shell />}>
             <Route path="/" element={<Home />} />
