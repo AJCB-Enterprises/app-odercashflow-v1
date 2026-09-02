@@ -9,6 +9,8 @@ const req = (key: string): string => {
 export const config = {
   databaseUrl: req("DATABASE_URL"),
   jwtSecret: req("JWT_SECRET"),
+  // 32-byte key, base64-encoded, used to encrypt the client TIN column at rest.
+  tinEncryptionKey: req("TIN_ENCRYPTION_KEY"),
   jwtExpires: process.env.JWT_EXPIRES || "12h",
   port: Number(process.env.PORT || 4000),
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "http://localhost:4000",

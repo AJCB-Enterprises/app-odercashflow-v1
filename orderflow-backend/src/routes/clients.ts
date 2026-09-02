@@ -6,6 +6,7 @@ import { one, q } from "../db";
 import { clientScopeSql, requireAdmin, requireAuth } from "../middleware/auth";
 import { audit } from "../lib/notify";
 import { config } from "../config";
+import { decryptField, encryptField } from "../lib/crypto";
 import { readClientDocument, saveClientDocument, sanitizeFilename, validateUpload } from "../lib/storage";
 
 export const clientsRouter = Router();
@@ -81,6 +82,7 @@ clientsRouter.get("/:id", async (req, res) => {
     params
   );
   if (!client) return res.status(404).json({ error: "Client not found" });
+  if (client.tin) client.tin = decryptField(client.tin);
 
   const [orders, invoices] = await Promise.all([
     q(
@@ -133,10 +135,11 @@ clientsRouter.post("/", async (req, res) => {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [
       b.company_name, b.contact_name, b.email, b.phone ?? null, b.address ?? null, agentId, b.notes ?? null,
-      b.payment_terms ?? "net_30", b.vat_status ?? "vat_inclusive", b.extra_emails ?? [], b.tin ?? null,
+      b.payment_terms ?? "net_30", b.vat_status ?? "vat_inclusive", b.extra_emails ?? [], b.tin ? encryptField(b.tin) : null,
     ]
   );
   await audit(req.user!.id, "client.created", "client", row.id);
+  if (row.tin) row.tin = decryptField(row.tin);
   res.status(201).json(row);
 });
 
@@ -145,7 +148,9 @@ clientsRouter.patch("/:id", requireAdmin, async (req, res) => {
   const parsed = ClientBody.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const b = parsed.data;
-  const fields = Object.entries(b).filter(([, v]) => v !== undefined);
+  const fields = Object.entries(b)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => (k === "tin" && v ? [k, encryptField(v as string)] : [k, v]));
   if (!fields.length) return res.status(400).json({ error: "Nothing to update" });
   const sets = fields.map(([k], i) => `${k} = $${i + 2}`).join(", ");
   const row = await one(
@@ -153,7 +158,9 @@ clientsRouter.patch("/:id", requireAdmin, async (req, res) => {
     [req.params.id, ...fields.map(([, v]) => v)]
   );
   if (!row) return res.status(404).json({ error: "Client not found" });
-  await audit(req.user!.id, "client.updated", "client", row.id, b);
+  // tin is never logged in plaintext, even here — the audit trail shouldn't hold what the column encrypts.
+  await audit(req.user!.id, "client.updated", "client", row.id, { ...b, ...(b.tin !== undefined ? { tin: "[redacted]" } : {}) });
+  if (row.tin) row.tin = decryptField(row.tin);
   res.json(row);
 });
 

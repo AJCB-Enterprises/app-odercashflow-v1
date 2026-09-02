@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pool } from "./db";
+import { encryptField, isEncryptedField } from "./lib/crypto";
 
 /** Applies migrations/*.sql in filename order, tracking them in schema_migrations. */
 const run = async () => {
@@ -28,6 +29,19 @@ const run = async () => {
       client.release();
     }
   }
+
+  // One-time, idempotent backfill: encrypt any client TIN values written
+  // before field-level encryption existed. Skips rows already encrypted, so
+  // this is a cheap no-op on every boot after the first.
+  const plain = await pool.query<{ id: string; tin: string }>("SELECT id, tin FROM clients WHERE tin IS NOT NULL");
+  let encrypted = 0;
+  for (const row of plain.rows) {
+    if (isEncryptedField(row.tin)) continue;
+    await pool.query("UPDATE clients SET tin = $2 WHERE id = $1", [row.id, encryptField(row.tin)]);
+    encrypted++;
+  }
+  if (encrypted) console.log(`encrypted ${encrypted} legacy TIN value(s)`);
+
   await pool.end();
   console.log("migrations up to date");
 };
