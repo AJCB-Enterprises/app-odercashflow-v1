@@ -1,12 +1,35 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { one, q } from "../db";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { runReminders } from "../worker/reminders";
 import { audit } from "../lib/notify";
+import { sendMail } from "../lib/email";
 
 export const remindersRouter = Router();
 remindersRouter.use(requireAuth, requireAdmin);
+
+const testEmailLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true });
+const TestEmailBody = z.object({ to: z.string().email() });
+
+/**
+ * POST /reminders/test-email — admin-only mail-pipeline smoke test. Sends a
+ * plain message straight to the given address via sendMail(); never touches
+ * client/invoice data or reminder_logs, so it's safe to run any time.
+ */
+remindersRouter.post("/test-email", testEmailLimiter, async (req, res) => {
+  const parsed = TestEmailBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "A valid \"to\" email address is required" });
+
+  const mail = await sendMail(
+    parsed.data.to,
+    "OrderFlow test email",
+    `This is a test email from OrderFlow, sent by ${req.user!.full_name} to confirm the mail pipeline is working.\n\nSent at ${new Date().toISOString()}.`
+  );
+  await audit(req.user!.id, "reminders.test_email_sent", "reminder_settings", "test", { to: parsed.data.to });
+  res.json({ ok: true, provider_id: mail.providerId });
+});
 
 /** GET /reminders/settings */
 remindersRouter.get("/settings", async (_req, res) => {
