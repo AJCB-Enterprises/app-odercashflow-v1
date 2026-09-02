@@ -211,7 +211,12 @@ export function AgentInvoices() {
               {invoices.map((i) => (
                 <tr key={i.id}>
                   <td className="num strong">{i.invoice_no}</td>
-                  <td className="num right">{peso(i.amount)}</td>
+                  <td className="num right">
+                    {peso(i.amount)}
+                    {i.status !== "paid" && i.status !== "void" && Number(i.balance_due) !== Number(i.amount) && (
+                      <div className="dim" style={{ fontSize: 12.5 }}>Balance: {peso(i.balance_due)}</div>
+                    )}
+                  </td>
                   <td className="num">{fmtDate(i.due_date)}</td>
                   <td><InvoiceChip inv={i} /></td>
                 </tr>
