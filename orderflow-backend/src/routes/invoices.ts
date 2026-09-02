@@ -3,7 +3,7 @@ import { one, q, tx } from "../db";
 import { clientScopeSql, requireAdmin, requireAgentPermission, requireAuth } from "../middleware/auth";
 import { revokeInvoiceTokens } from "../lib/tokens";
 import { audit } from "../lib/notify";
-import { readReceipt } from "../lib/storage";
+import { readEwtForm, readReceipt } from "../lib/storage";
 
 export const invoicesRouter = Router();
 invoicesRouter.use(requireAuth);
@@ -32,11 +32,12 @@ invoicesRouter.get("/", requireAgentPermission("can_view_invoices"), async (req,
     `SELECT i.id, i.invoice_no, i.amount, i.due_date, i.status, i.paid_at,
             (i.status = 'unpaid' AND i.due_date < CURRENT_DATE) AS is_overdue,
             c.id AS client_id, c.company_name,
-            r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at
+            r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at,
+            r.ewt_name
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
        LEFT JOIN LATERAL (
-         SELECT id, original_name, uploaded_at FROM receipts
+         SELECT id, original_name, uploaded_at, ewt_name FROM receipts
           WHERE invoice_id = i.id ORDER BY uploaded_at DESC LIMIT 1
        ) r ON TRUE
        ${where}${scope.sql}
@@ -59,6 +60,22 @@ invoicesRouter.get("/:id/receipt", requireAdmin, async (req, res) => {
   const data = await readReceipt(receipt.storage_key);
   res.setHeader("Content-Type", receipt.mime_type);
   res.setHeader("Content-Disposition", `inline; filename="${receipt.original_name.replace(/"/g, "")}"`);
+  res.send(data);
+});
+
+/**
+ * GET /invoices/:id/receipt/ewt — streams the client's BIR Form 2307 (EWT),
+ * if they uploaded one alongside their receipt.
+ */
+invoicesRouter.get("/:id/receipt/ewt", requireAdmin, async (req, res) => {
+  const receipt = await one(
+    "SELECT ewt_key, ewt_name, ewt_mime FROM receipts WHERE invoice_id = $1 AND ewt_key IS NOT NULL ORDER BY uploaded_at DESC LIMIT 1",
+    [req.params.id]
+  );
+  if (!receipt) return res.status(404).json({ error: "No BIR 2307 form uploaded for this invoice" });
+  const data = await readEwtForm(receipt.ewt_key);
+  res.setHeader("Content-Type", receipt.ewt_mime);
+  res.setHeader("Content-Disposition", `inline; filename="${receipt.ewt_name.replace(/"/g, "")}"`);
   res.send(data);
 });
 

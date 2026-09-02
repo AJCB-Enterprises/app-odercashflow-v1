@@ -54,10 +54,11 @@ export const api = {
   patch: <T = any>(path: string, data: object) =>
     request<T>(path, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }),
   delete: <T = any>(path: string) => request<T>(path, { method: "DELETE" }),
-  /** Multipart upload for the public receipt endpoint (no auth header). */
-  upload: <T = any>(path: string, file: File) => {
+  /** Multipart upload for the public receipt endpoint (no auth header). `extra` adds further named files, e.g. an EWT form. */
+  upload: <T = any>(path: string, file: File, extra?: Record<string, File>) => {
     const form = new FormData();
     form.append("file", file);
+    if (extra) for (const [field, f] of Object.entries(extra)) form.append(field, f);
     return request<T>(path, { method: "POST", body: form }, false);
   },
   /** Authenticated multipart POST — e.g. a new order with an optional PO attachment. */

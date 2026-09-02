@@ -12,11 +12,13 @@ export default function Upload() {
   const { token } = useParams();
   const { data, error, loading } = useData<any>(() => api.get(`/u/${token}`, false), [token]);
   const [file, setFile] = useState<File | null>(null);
+  const [ewtFile, setEwtFile] = useState<File | null>(null);
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const ewtInputRef = useRef<HTMLInputElement>(null);
 
   if (loading) return <div className="centerwrap"><Loading /></div>;
   if (error || !data)
@@ -33,7 +35,11 @@ export default function Upload() {
     setBusy(true);
     setErr("");
     try {
-      const res = await api.upload<{ message: string }>(`/u/${token}/receipt`, file);
+      const res = await api.upload<{ message: string }>(
+        `/u/${token}/receipt`,
+        file,
+        ewtFile ? { ewt_file: ewtFile } : undefined
+      );
       setDone(res.message);
     } catch (e: any) {
       setErr(e.message);
@@ -99,10 +105,19 @@ export default function Upload() {
                   <div style={{ fontFamily: "var(--cond)", fontWeight: 700, fontSize: 16, textTransform: "uppercase", letterSpacing: ".05em" }}>
                     Drop receipt here or click to choose
                   </div>
-                  <div className="dim" style={{ marginTop: 4 }}>JPG, PNG, or PDF · max 10 MB</div>
+                  <div className="dim" style={{ marginTop: 4 }}>JPG, PNG, or PDF · max 5 MB</div>
                 </>
               )}
             </div>
+
+            <label className="f" htmlFor="ewt-file" style={{ marginTop: 14 }}>BIR Form 2307 / EWT (optional)</label>
+            <input id="ewt-file" ref={ewtInputRef} className="f" type="file"
+              accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+              onChange={(e) => setEwtFile(e.target.files?.[0] || null)} />
+            <p className="dim" style={{ marginTop: 4, fontSize: 12.5 }}>
+              If you withheld tax on this payment, attach your Certificate of Creditable Tax Withheld.
+            </p>
+
             {err && <ErrorBox msg={err} />}
             <button className="btn" style={{ marginTop: 14 }} disabled={!file || busy} onClick={submit}>
               {busy ? "Uploading…" : "Submit receipt"}

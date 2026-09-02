@@ -13,6 +13,14 @@ export default function Receipts() {
     }
   };
 
+  const viewEwt = async (invoiceId: string) => {
+    try {
+      await api.openBlob(`/invoices/${invoiceId}/receipt/ewt`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
   const markPaid = async (invoiceId: string, invoiceNo: string) => {
     try {
       await api.post(`/invoices/${invoiceId}/mark-paid`);
@@ -47,6 +55,11 @@ export default function Receipts() {
                   <td className="num">{i.receipt_uploaded_at ? fmtTime(i.receipt_uploaded_at) : "—"}</td>
                   <td className="right" style={{ whiteSpace: "nowrap" }}>
                     <button className="btn sm ghost" onClick={() => view(i.id)}>View</button>{" "}
+                    {i.ewt_name && (
+                      <>
+                        <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>{" "}
+                      </>
+                    )}
                     <button className="btn sm green" onClick={() => markPaid(i.id, i.invoice_no)}>Mark paid</button>
                   </td>
                 </tr>

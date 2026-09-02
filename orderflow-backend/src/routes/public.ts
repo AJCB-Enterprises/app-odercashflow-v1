@@ -3,7 +3,7 @@ import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { one, tx } from "../db";
 import { resolveUploadToken } from "../lib/tokens";
-import { saveReceipt, sanitizeFilename, validateUpload } from "../lib/storage";
+import { saveEwtForm, saveReceipt, sanitizeFilename, validateUpload } from "../lib/storage";
 import { notifyAdmins, notifyUser, audit } from "../lib/notify";
 import { config } from "../config";
 
@@ -35,8 +35,12 @@ const uploadLimiter = rateLimit({
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
+  limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 2 },
 });
+const uploadFields = upload.fields([
+  { name: "file", maxCount: 1 },
+  { name: "ewt_file", maxCount: 1 },
+]);
 
 const NOT_FOUND = { error: "This link is invalid or has expired. Please use the latest reminder email." };
 
@@ -56,30 +60,50 @@ publicRouter.get("/u/:token", async (req, res) => {
   });
 });
 
-/** POST /u/:token/receipt — multipart field "file": JPG, PNG, or PDF. */
-publicRouter.post("/u/:token/receipt", uploadLimiter, upload.single("file"), async (req, res) => {
+/**
+ * POST /u/:token/receipt — multipart field "file" (required, JPG/PNG/PDF): the
+ * payment receipt. Optional field "ewt_file" (same types): the client's BIR
+ * Form 2307 (Certificate of Creditable Tax Withheld / EWT), if they withhold
+ * tax on this payment. Both are validated and stored the same way.
+ */
+publicRouter.post("/u/:token/receipt", uploadLimiter, uploadFields, async (req, res) => {
   const inv = await resolveUploadToken(String(req.params.token));
   if (!inv) return res.status(404).json(NOT_FOUND);
   if (inv.status === "paid" || inv.status === "void") return res.status(404).json(NOT_FOUND);
-  if (!req.file) return res.status(400).json({ error: "Attach a receipt file (JPG, PNG, or PDF)" });
 
-  const kind = validateUpload(req.file);
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+  const receiptFile = files?.file?.[0];
+  const ewtFile = files?.ewt_file?.[0];
+  if (!receiptFile) return res.status(400).json({ error: "Attach a receipt file (JPG, PNG, or PDF)" });
+
+  const kind = validateUpload(receiptFile);
   if (!kind) return res.status(400).json({ error: "Only JPG, PNG, or PDF receipts are accepted" });
 
-  const storageKey = await saveReceipt(inv.invoice_id, kind.ext, req.file.buffer);
-  const originalName = sanitizeFilename(req.file.originalname, `receipt.${kind.ext}`);
+  let ewtKind: { ext: string; mime: string } | null = null;
+  if (ewtFile) {
+    ewtKind = validateUpload(ewtFile);
+    if (!ewtKind) return res.status(400).json({ error: "BIR Form 2307 must be a JPG, PNG, or PDF" });
+  }
+
+  const storageKey = await saveReceipt(inv.invoice_id, kind.ext, receiptFile.buffer);
+  const originalName = sanitizeFilename(receiptFile.originalname, `receipt.${kind.ext}`);
+  const ewtKey = ewtFile && ewtKind ? await saveEwtForm(inv.invoice_id, ewtKind.ext, ewtFile.buffer) : null;
+  const ewtName = ewtFile && ewtKind ? sanitizeFilename(ewtFile.originalname, `2307.${ewtKind.ext}`) : null;
 
   await tx(async (c) => {
     await c.query(
-      `INSERT INTO receipts (invoice_id, storage_key, original_name, mime_type, size_bytes, uploaded_via)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [inv.invoice_id, storageKey, originalName, kind.mime, req.file!.size, inv.token_id]
+      `INSERT INTO receipts (invoice_id, storage_key, original_name, mime_type, size_bytes, uploaded_via, ewt_key, ewt_name, ewt_mime, ewt_size_bytes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        inv.invoice_id, storageKey, originalName, kind.mime, receiptFile.size, inv.token_id,
+        ewtKey, ewtName, ewtKind?.mime ?? null, ewtFile?.size ?? null,
+      ]
     );
     await c.query("UPDATE invoices SET status = 'receipt_uploaded' WHERE id = $1 AND status = 'unpaid'", [
       inv.invoice_id,
     ]);
     await notifyAdmins(
-      `${inv.company_name} uploaded a receipt for ${inv.invoice_no} (${originalName}).`,
+      `${inv.company_name} uploaded a receipt for ${inv.invoice_no} (${originalName})${ewtName ? ", with a BIR 2307 form" : ""}.`,
       `/invoices/${inv.invoice_id}`,
       c
     );
@@ -89,7 +113,7 @@ publicRouter.post("/u/:token/receipt", uploadLimiter, upload.single("file"), asy
     );
     if (agent?.agent_id)
       await notifyUser(agent.agent_id, `${inv.company_name} uploaded a payment receipt for ${inv.invoice_no}.`, `/invoices/${inv.invoice_id}`, c);
-    await audit(null, "receipt.uploaded", "invoice", inv.invoice_id, { via_token: inv.token_id, file: originalName }, c);
+    await audit(null, "receipt.uploaded", "invoice", inv.invoice_id, { via_token: inv.token_id, file: originalName, ewt_file: ewtName }, c);
   });
 
   res.status(201).json({

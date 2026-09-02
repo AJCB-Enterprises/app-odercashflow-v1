@@ -27,6 +27,17 @@ export const saveReceipt = async (invoiceId: string, ext: string, data: Buffer):
 
 export const readReceipt = async (key: string): Promise<Buffer> => fs.promises.readFile(safePath(key));
 
+/** BIR Form 2307 (EWT), optionally uploaded alongside a payment receipt. */
+export const saveEwtForm = async (invoiceId: string, ext: string, data: Buffer): Promise<string> => {
+  const key = path.join(invoiceId, `ewt-${crypto.randomUUID()}.${ext}`);
+  const full = safePath(key);
+  await fs.promises.mkdir(path.dirname(full), { recursive: true });
+  await fs.promises.writeFile(full, data);
+  return key;
+};
+
+export const readEwtForm = async (key: string): Promise<Buffer> => fs.promises.readFile(safePath(key));
+
 export const saveOrderAttachment = async (orderId: string, ext: string, data: Buffer): Promise<string> => {
   const key = path.join("orders", orderId, `${crypto.randomUUID()}.${ext}`);
   const full = safePath(key);
