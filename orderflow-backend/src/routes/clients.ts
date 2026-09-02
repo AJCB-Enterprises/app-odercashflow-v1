@@ -1,11 +1,12 @@
 import { Router } from "express";
 import multer from "multer";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { one, q } from "../db";
 import { clientScopeSql, requireAdmin, requireAuth } from "../middleware/auth";
 import { audit } from "../lib/notify";
 import { config } from "../config";
-import { readClientDocument, saveClientDocument, sniffFileType } from "../lib/storage";
+import { readClientDocument, saveClientDocument, validateUpload } from "../lib/storage";
 
 export const clientsRouter = Router();
 clientsRouter.use(requireAuth);
@@ -13,6 +14,13 @@ clientsRouter.use(requireAuth);
 const uploadDoc = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
+});
+
+const uploadDocLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  message: { error: "Too many document uploads, try again later" },
 });
 
 /** Column-name prefix per document type — never derived from the URL param directly. */
@@ -157,6 +165,7 @@ clientsRouter.patch("/:id", requireAdmin, async (req, res) => {
 clientsRouter.post(
   "/:id/documents/:type",
   requireAdmin,
+  uploadDocLimiter,
   uploadDoc.single("file"),
   async (req, res) => {
     const clientId = String(req.params.id);
@@ -164,7 +173,7 @@ clientsRouter.post(
     const prefix = DOC_COLUMNS[docType];
     if (!prefix) return res.status(404).json({ error: "Unknown document type" });
     if (!req.file) return res.status(400).json({ error: "Attach a file (JPG, PNG, or PDF)" });
-    const kind = sniffFileType(req.file.buffer);
+    const kind = validateUpload(req.file);
     if (!kind) return res.status(400).json({ error: "File must be a JPG, PNG, or PDF" });
 
     const key = await saveClientDocument(clientId, prefix, kind.ext, req.file.buffer);

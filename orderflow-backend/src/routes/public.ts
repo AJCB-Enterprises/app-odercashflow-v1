@@ -3,7 +3,7 @@ import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { one, tx } from "../db";
 import { resolveUploadToken } from "../lib/tokens";
-import { saveReceipt, sniffFileType } from "../lib/storage";
+import { saveReceipt, validateUpload } from "../lib/storage";
 import { notifyAdmins, notifyUser, audit } from "../lib/notify";
 import { config } from "../config";
 
@@ -12,7 +12,7 @@ import { config } from "../config";
  * The token in the URL is the credential (see architecture §2.1):
  *  - missing, expired, revoked, and unknown tokens all return the same 404
  *  - responses expose the minimum: invoice no, display name, amount, due date
- *  - rate-limited by IP; uploads validated by magic bytes and size
+ *  - rate-limited by IP; uploads validated by MIME type, extension, and magic bytes
  */
 export const publicRouter = Router();
 
@@ -23,6 +23,15 @@ const limiter = rateLimit({
   message: { error: "Too many requests, try again later" },
 });
 publicRouter.use(limiter);
+
+// Tighter limit specifically on the upload action — it costs disk I/O, a DB
+// write, and admin/agent notification emails, unlike the plain GET above.
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  message: { error: "Too many upload attempts, try again later" },
+});
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -48,13 +57,13 @@ publicRouter.get("/u/:token", async (req, res) => {
 });
 
 /** POST /u/:token/receipt — multipart field "file": JPG, PNG, or PDF. */
-publicRouter.post("/u/:token/receipt", upload.single("file"), async (req, res) => {
+publicRouter.post("/u/:token/receipt", uploadLimiter, upload.single("file"), async (req, res) => {
   const inv = await resolveUploadToken(String(req.params.token));
   if (!inv) return res.status(404).json(NOT_FOUND);
   if (inv.status === "paid" || inv.status === "void") return res.status(404).json(NOT_FOUND);
   if (!req.file) return res.status(400).json({ error: "Attach a receipt file (JPG, PNG, or PDF)" });
 
-  const kind = sniffFileType(req.file.buffer);
+  const kind = validateUpload(req.file);
   if (!kind) return res.status(400).json({ error: "Only JPG, PNG, or PDF receipts are accepted" });
 
   const storageKey = await saveReceipt(inv.invoice_id, kind.ext, req.file.buffer);

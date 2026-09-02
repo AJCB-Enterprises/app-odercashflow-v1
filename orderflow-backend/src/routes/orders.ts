@@ -7,7 +7,8 @@ import { nextDocNo, peso, shortDate } from "../lib/numbering";
 import { audit, notifyAdmins, notifyUser } from "../lib/notify";
 import { clientEmails, sendMail } from "../lib/email";
 import { config } from "../config";
-import { readOrderAttachment, saveOrderAttachment, sniffFileType } from "../lib/storage";
+import { readOrderAttachment, saveOrderAttachment, validateUpload } from "../lib/storage";
+import rateLimit from "express-rate-limit";
 import { sendPaymentReminder } from "../worker/reminders";
 
 export const ordersRouter = Router();
@@ -16,6 +17,15 @@ ordersRouter.use(requireAuth);
 const uploadAttachment = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
+});
+
+// Order creation always runs through here (attachment or not) — bounds both
+// plain order spam and the more expensive file-upload path in one place.
+const createOrderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  message: { error: "Too many orders submitted, try again later" },
 });
 
 /** GET /orders?status=pending — admin sees all; agents see their clients' orders. */
@@ -110,7 +120,7 @@ const VAT_STATUS_LABELS: Record<string, string> = { vat_exempt: "SO/ DR", vat_in
  * can't otherwise ride in the same multipart request); "file" is optional —
  * a photo/scan of the client's own PO document (JPG, PNG, or PDF).
  */
-ordersRouter.post("/", requireAgentPermission("can_create_po"), uploadAttachment.single("file"), async (req, res) => {
+ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimiter, uploadAttachment.single("file"), async (req, res) => {
   const user = req.user!;
   let itemsInput: unknown;
   try {
@@ -124,7 +134,7 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), uploadAttachment
 
   let attachment: { ext: string; mime: string } | null = null;
   if (req.file) {
-    attachment = sniffFileType(req.file.buffer);
+    attachment = validateUpload(req.file);
     if (!attachment) return res.status(400).json({ error: "PO attachment must be a JPG, PNG, or PDF" });
   }
 

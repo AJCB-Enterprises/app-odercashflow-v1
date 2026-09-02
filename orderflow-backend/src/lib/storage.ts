@@ -63,3 +63,34 @@ export const sniffFileType = (buf: Buffer): { ext: string; mime: string } | null
     return { ext: "pdf", mime: "application/pdf" };
   return null;
 };
+
+const ALLOWED_TYPES: Record<string, { mimes: string[]; exts: string[] }> = {
+  jpg: { mimes: ["image/jpeg", "image/jpg"], exts: ["jpg", "jpeg"] },
+  png: { mimes: ["image/png"], exts: ["png"] },
+  pdf: { mimes: ["application/pdf"], exts: ["pdf"] },
+};
+
+/**
+ * Full upload validation: the declared Content-Type, the filename extension,
+ * and the actual file bytes must all agree on the same type (JPG/PNG/PDF).
+ * Any mismatch — a relabeled file, a spoofed Content-Type, a lying extension
+ * — is rejected. The returned {ext, mime} come from the sniffed content,
+ * since that's the only one of the three the client can't fake.
+ */
+export const validateUpload = (file: {
+  buffer: Buffer;
+  mimetype?: string;
+  originalname?: string;
+}): { ext: string; mime: string } | null => {
+  const sniffed = sniffFileType(file.buffer);
+  if (!sniffed) return null;
+  const rule = ALLOWED_TYPES[sniffed.ext];
+
+  const declaredMime = (file.mimetype || "").toLowerCase().trim();
+  if (!rule.mimes.includes(declaredMime)) return null;
+
+  const nameExt = (file.originalname || "").split(".").pop()?.toLowerCase().trim() || "";
+  if (!rule.exts.includes(nameExt)) return null;
+
+  return sniffed;
+};
