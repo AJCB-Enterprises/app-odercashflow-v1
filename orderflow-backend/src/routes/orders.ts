@@ -7,7 +7,7 @@ import { nextDocNo, peso, shortDate } from "../lib/numbering";
 import { audit, notifyAdmins, notifyUser } from "../lib/notify";
 import { clientEmails, sendMail } from "../lib/email";
 import { config } from "../config";
-import { readOrderAttachment, saveOrderAttachment, validateUpload } from "../lib/storage";
+import { readOrderAttachment, saveOrderAttachment, sanitizeFilename, validateUpload } from "../lib/storage";
 import rateLimit from "express-rate-limit";
 import { sendPaymentReminder } from "../worker/reminders";
 
@@ -170,7 +170,7 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimit
       const updRes = await c.query(
         `UPDATE orders SET attachment_key = $2, attachment_name = $3, attachment_mime = $4, attachment_size_bytes = $5
           WHERE id = $1 RETURNING *`,
-        [order.id, key, (req.file.originalname || `po.${attachment.ext}`).slice(0, 200), attachment.mime, req.file.size]
+        [order.id, key, sanitizeFilename(req.file.originalname, `po.${attachment.ext}`), attachment.mime, req.file.size]
       );
       order = updRes.rows[0];
     }

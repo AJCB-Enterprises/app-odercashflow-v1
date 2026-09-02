@@ -94,3 +94,19 @@ export const validateUpload = (file: {
 
   return sniffed;
 };
+
+/**
+ * The client-supplied filename is only ever used as a display label (stored
+ * storage keys are always a generated UUID, never this) — but it's echoed
+ * back verbatim in a Content-Disposition header, so it's sanitized down to a
+ * safe printable subset first. Strips path separators, control/CR-LF
+ * characters, and quotes that could otherwise break the header or mislead a
+ * user with a spoofed name.
+ */
+export const sanitizeFilename = (name: string | undefined, fallback: string): string => {
+  const cleaned = (name || "")
+    .replace(/[^A-Za-z0-9 ._-]/g, "_")
+    .replace(/_+/g, "_")
+    .trim();
+  return (cleaned || fallback).slice(0, 200);
+};

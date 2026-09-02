@@ -3,7 +3,7 @@ import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { one, tx } from "../db";
 import { resolveUploadToken } from "../lib/tokens";
-import { saveReceipt, validateUpload } from "../lib/storage";
+import { saveReceipt, sanitizeFilename, validateUpload } from "../lib/storage";
 import { notifyAdmins, notifyUser, audit } from "../lib/notify";
 import { config } from "../config";
 
@@ -67,7 +67,7 @@ publicRouter.post("/u/:token/receipt", uploadLimiter, upload.single("file"), asy
   if (!kind) return res.status(400).json({ error: "Only JPG, PNG, or PDF receipts are accepted" });
 
   const storageKey = await saveReceipt(inv.invoice_id, kind.ext, req.file.buffer);
-  const originalName = (req.file.originalname || `receipt.${kind.ext}`).slice(0, 200);
+  const originalName = sanitizeFilename(req.file.originalname, `receipt.${kind.ext}`);
 
   await tx(async (c) => {
     await c.query(

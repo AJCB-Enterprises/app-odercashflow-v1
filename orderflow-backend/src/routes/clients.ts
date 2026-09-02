@@ -6,7 +6,7 @@ import { one, q } from "../db";
 import { clientScopeSql, requireAdmin, requireAuth } from "../middleware/auth";
 import { audit } from "../lib/notify";
 import { config } from "../config";
-import { readClientDocument, saveClientDocument, validateUpload } from "../lib/storage";
+import { readClientDocument, saveClientDocument, sanitizeFilename, validateUpload } from "../lib/storage";
 
 export const clientsRouter = Router();
 clientsRouter.use(requireAuth);
@@ -184,7 +184,7 @@ clientsRouter.post(
       [
         clientId,
         key,
-        (req.file.originalname || `${prefix}.${kind.ext}`).slice(0, 200),
+        sanitizeFilename(req.file.originalname, `${prefix}.${kind.ext}`),
         kind.mime,
         req.file.size,
       ]
