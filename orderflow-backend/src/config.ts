@@ -13,7 +13,8 @@ export const config = {
   port: Number(process.env.PORT || 4000),
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "http://localhost:4000",
   uploadDir: process.env.UPLOAD_DIR || "./data/receipts",
-  maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 10),
+  // Hard ceiling of 5 MB regardless of env config — MAX_UPLOAD_MB can only lower it, never raise it.
+  maxUploadMb: Math.min(Number(process.env.MAX_UPLOAD_MB || 5), 5),
   smtpUrl: process.env.SMTP_URL || "",
   resendApiKey: process.env.RESEND_API_KEY || "",
   mailFrom: process.env.MAIL_FROM || "OrderFlow Billing <billing@example.com>",
