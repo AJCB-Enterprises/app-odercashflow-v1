@@ -126,12 +126,12 @@ export function ClientDetail() {
 
       <Card title="Pending invoices" hint="shown when reviewing this account" pad={false}>
         <table className="ledger">
-          <thead><tr><th>Invoice</th><th className="right">Amount</th><th>Due</th><th>Status</th></tr></thead>
+          <thead><tr><th>Invoice</th><th className="right">Balance due</th><th>Due</th><th>Status</th></tr></thead>
           <tbody>
             {pending_invoices.map((i: any) => (
               <tr key={i.id}>
                 <td className="num strong">{i.invoice_no}</td>
-                <td className="num right">{peso(i.amount)}</td>
+                <td className="num right">{peso(i.balance_due)}</td>
                 <td className="num">{fmtDate(i.due_date)}</td>
                 <td><InvoiceChip inv={i} /></td>
               </tr>

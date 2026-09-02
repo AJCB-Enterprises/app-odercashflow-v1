@@ -20,6 +20,7 @@ dashboardRouter.get("/payments-due", async (_req, res) => {
     `SELECT i.id, i.invoice_no, i.amount, i.due_date, i.status,
             (i.status = 'unpaid' AND i.due_date < CURRENT_DATE) AS is_overdue,
             (i.due_date - CURRENT_DATE) AS days_until_due,
+            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS balance_due,
             c.id AS client_id, c.company_name, c.contact_name, c.email
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
@@ -35,7 +36,7 @@ dashboardRouter.get("/payments-due", async (_req, res) => {
       due_soon_count: dueSoon.length,
       due_soon_window_days: daysBefore,
       receipts_to_verify: rows.filter((r: any) => r.status === "receipt_uploaded").length,
-      outstanding_total: rows.reduce((s: number, r: any) => s + Number(r.amount), 0),
+      outstanding_total: rows.reduce((s: number, r: any) => s + Number(r.balance_due), 0),
     },
     invoices: rows,
   });

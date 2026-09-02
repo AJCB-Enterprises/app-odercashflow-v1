@@ -52,7 +52,9 @@ publicRouter.get("/u/:token", async (req, res) => {
     invoice_no: inv.invoice_no,
     billed_to: inv.company_name,
     contact_name: inv.contact_name,
-    amount: inv.amount,
+    // The remaining balance, not the original invoice total — a client who
+    // already partly paid (e.g. net of EWT) should see what's still owed.
+    amount: inv.balance_due,
     due_date: inv.due_date,
     status: inv.status, // 'receipt_uploaded' lets the page show "already received"
     is_overdue: inv.status === "unpaid" && new Date(inv.due_date) < new Date(),

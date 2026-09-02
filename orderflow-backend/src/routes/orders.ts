@@ -83,7 +83,8 @@ ordersRouter.get("/:id", async (req, res) => {
     q("SELECT id, description, qty, unit_price FROM order_items WHERE order_id = $1", [order.id]),
     q(
       `SELECT id, invoice_no, amount, due_date, status,
-              (status = 'unpaid' AND due_date < CURRENT_DATE) AS is_overdue
+              (status = 'unpaid' AND due_date < CURRENT_DATE) AS is_overdue,
+              (amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0)) AS balance_due
          FROM invoices
         WHERE client_id = $1 AND status IN ('unpaid','receipt_uploaded')
         ORDER BY due_date`,

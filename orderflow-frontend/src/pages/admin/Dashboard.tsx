@@ -20,14 +20,14 @@ export default function Dashboard() {
           <Card title="Open invoices" hint="soonest due first" pad={false}>
             <table className="ledger">
               <thead>
-                <tr><th>Invoice</th><th>Client</th><th className="right">Amount</th><th>Due</th><th>Status</th></tr>
+                <tr><th>Invoice</th><th>Client</th><th className="right">Balance due</th><th>Due</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {data.invoices.map((i: any) => (
                   <tr key={i.id}>
                     <td className="num strong">{i.invoice_no}</td>
                     <td>{i.company_name}<div className="dim">{i.contact_name}</div></td>
-                    <td className="num right">{peso(i.amount)}</td>
+                    <td className="num right">{peso(i.balance_due)}</td>
                     <td className="num">
                       {fmtDate(i.due_date)}
                       <div className="dim" style={i.is_overdue ? { color: "var(--red)" } : undefined}>
