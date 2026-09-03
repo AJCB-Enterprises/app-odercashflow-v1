@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { pool } from "../../src/db";
+import * as emailLib from "../../src/lib/email";
 import { sendImmediateReminderForClient } from "../../src/worker/reminders";
-import { createClientRow, createInvoice } from "../fixtures";
+import { createClientRow, createInvoice, createOrder } from "../fixtures";
 
 describe("sendImmediateReminderForClient", () => {
   it("sends and logs a reminder for a client's one due unpaid invoice", async () => {
@@ -64,5 +65,30 @@ describe("sendImmediateReminderForClient", () => {
     ]);
     expect(rows).toHaveLength(2);
     expect(rows[0].provider_id).toBe(rows[1].provider_id); // one email covering both
+  });
+
+  it("re-sends the order-approved notice for an order behind a due invoice", async () => {
+    const spy = vi.spyOn(emailLib, "sendMail");
+    const client = await createClientRow();
+    const order = await createOrder({ clientId: client.id, status: "approved" });
+    await createInvoice({ clientId: client.id, amount: 500, orderId: order.id });
+
+    await sendImmediateReminderForClient(client.id);
+
+    const approvalCall = spy.mock.calls.find(([, subject]) => String(subject).includes(order.order_no));
+    expect(approvalCall).toBeDefined();
+    spy.mockRestore();
+  });
+
+  it("skips the order-approved resend when the invoice has no linked order", async () => {
+    const spy = vi.spyOn(emailLib, "sendMail");
+    const client = await createClientRow();
+    await createInvoice({ clientId: client.id, amount: 500 }); // no orderId
+
+    await sendImmediateReminderForClient(client.id);
+
+    const approvalCall = spy.mock.calls.find(([, subject]) => String(subject).includes("approved"));
+    expect(approvalCall).toBeUndefined();
+    spy.mockRestore();
   });
 });

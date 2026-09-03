@@ -67,15 +67,17 @@ export const createInvoice = async (opts: {
   invoiceNo?: string;
   dueDate?: string;
   status?: "unpaid" | "receipt_uploaded" | "paid" | "void";
+  orderId?: string | null;
 }) => {
   const { rows } = await pool.query(
-    `INSERT INTO invoices (client_id, invoice_no, amount, due_date, status) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    `INSERT INTO invoices (client_id, invoice_no, amount, due_date, status, order_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
     [
       opts.clientId,
       opts.invoiceNo ?? uniq("SI"),
       opts.amount,
       opts.dueDate ?? new Date().toISOString().slice(0, 10),
       opts.status ?? "unpaid",
+      opts.orderId ?? null,
     ]
   );
   return rows[0];

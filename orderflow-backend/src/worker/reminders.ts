@@ -65,6 +65,25 @@ interface DueInvoice {
 }
 
 /**
+ * The "your order was approved" notification. Sent once at approval time,
+ * and re-sent by sendImmediateReminderForClient() if an admin later
+ * corrects the client's email — the original send would have gone to the
+ * bad address too.
+ */
+export const sendOrderApprovedNotice = (
+  order: { order_no: string },
+  invoice: { invoice_no: string; amount: string | number; due_date: string },
+  client: { contact_name: string; email: string; extra_emails?: string[] }
+) =>
+  sendMail(
+    clientEmails(client),
+    `Order ${order.order_no} approved — invoice ${invoice.invoice_no}`,
+    `Hi ${client.contact_name}, your order ${order.order_no} has been approved. ` +
+      `Invoice ${invoice.invoice_no} for ${peso(invoice.amount)} is due on ` +
+      `${shortDate(invoice.due_date)}. You'll receive payment reminders with a secure upload link.`
+  );
+
+/**
  * Sends one payment reminder email for an invoice and logs it (same
  * transaction, so a crash after sendMail can't double-send next tick).
  * Shared by the scheduled batch run and any real-time trigger (e.g. COD).
@@ -189,14 +208,16 @@ export const sendImmediateReminderForClient = async (clientId: string): Promise<
   const settings = await one<Settings>("SELECT * FROM reminder_settings WHERE type = 'payment'::reminder_type");
   if (!settings || !settings.is_enabled) return 0;
 
-  const due = await q<DueInvoice>(
+  const due = await q<DueInvoice & { order_id: string | null; order_no: string | null }>(
     `SELECT i.id, i.invoice_no,
             (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
             i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
-            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails
+            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails,
+            o.id AS order_id, o.order_no
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
+       LEFT JOIN orders o ON o.id = i.order_id
       WHERE i.status = 'unpaid'
         AND i.client_id = $1
         AND i.due_date - make_interval(days => $2) <= now()
@@ -204,6 +225,16 @@ export const sendImmediateReminderForClient = async (clientId: string): Promise<
     [clientId, settings.days_before]
   );
   if (!due.length) return 0;
+
+  // The original "order approved" email would have gone to the same bad
+  // address, so re-send it too rather than leaving the client without any
+  // record their order was ever approved.
+  for (const inv of due) {
+    if (inv.order_id)
+      await sendOrderApprovedNotice({ order_no: inv.order_no! }, inv, inv).catch((e) =>
+        console.error(`resend of order-approved notice failed for order ${inv.order_no}:`, e.message)
+      );
+  }
 
   if (due.length >= 2) await sendStatementOfAccount(due);
   else await sendPaymentReminder(due[0], settings.template);

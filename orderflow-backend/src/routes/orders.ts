@@ -5,12 +5,12 @@ import { one, q, tx } from "../db";
 import { clientScopeSql, requireAdmin, requireAgentPermission, requireAuth } from "../middleware/auth";
 import { nextDocNo, peso, shortDate } from "../lib/numbering";
 import { audit, notifyAdmins, notifyUser } from "../lib/notify";
-import { clientEmails, sendMail } from "../lib/email";
+import { sendMail } from "../lib/email";
 import { config } from "../config";
 import { decryptField } from "../lib/crypto";
 import { readOrderAttachment, saveOrderAttachment, sanitizeFilename, validateUpload } from "../lib/storage";
 import rateLimit from "express-rate-limit";
-import { sendPaymentReminder } from "../worker/reminders";
+import { sendOrderApprovedNotice, sendPaymentReminder } from "../worker/reminders";
 
 export const ordersRouter = Router();
 ordersRouter.use(requireAuth);
@@ -268,13 +268,9 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
     [result.order.client_id]
   );
   if (client)
-    sendMail(
-      clientEmails(client),
-      `Order ${result.order.order_no} approved — invoice ${result.invoice.invoice_no}`,
-      `Hi ${client.contact_name}, your order ${result.order.order_no} has been approved. ` +
-        `Invoice ${result.invoice.invoice_no} for ${peso(result.invoice.amount)} is due on ` +
-        `${shortDate(result.invoice.due_date)}. You'll receive payment reminders with a secure upload link.`
-    ).catch((e) => console.error("approval email failed:", e.message));
+    sendOrderApprovedNotice(result.order, result.invoice, client).catch((e) =>
+      console.error("approval email failed:", e.message)
+    );
 
   // COD is due on delivery, i.e. right now — send the payment reminder (with
   // the upload link) immediately instead of waiting for the next 15-minute tick.
