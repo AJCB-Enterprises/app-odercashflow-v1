@@ -9,6 +9,8 @@ export interface AuthUser {
   full_name: string;
   can_create_po: boolean;
   can_view_invoices: boolean;
+  can_manage_agents: boolean;
+  can_manage_announcements: boolean;
 }
 
 declare global {
@@ -27,7 +29,8 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
   try {
     const payload = jwt.verify(token, config.jwtSecret) as { sub: string };
     const user = await one<AuthUser>(
-      "SELECT id, role, full_name, can_create_po, can_view_invoices FROM users WHERE id = $1 AND is_active",
+      `SELECT id, role, full_name, can_create_po, can_view_invoices, can_manage_agents, can_manage_announcements
+         FROM users WHERE id = $1 AND is_active`,
       [payload.sub]
     );
     if (!user) return res.status(401).json({ error: "Account not found or deactivated" });
@@ -47,6 +50,20 @@ export const requireAgentPermission =
   (perm: "can_create_po" | "can_view_invoices") => (req: Request, res: Response, next: NextFunction) => {
     const u = req.user!;
     if (u.role === "admin") return next();
+    if (!u[perm]) return res.status(403).json({ error: "Your account does not have this permission" });
+    next();
+  };
+
+/**
+ * Gates an admin-only capability behind a per-account flag, for admin users
+ * who shouldn't have full access (e.g. a restricted admin who can't manage
+ * other accounts or send announcements). Non-admins are rejected the same
+ * way requireAdmin does.
+ */
+export const requireAdminPermission =
+  (perm: "can_manage_agents" | "can_manage_announcements") => (req: Request, res: Response, next: NextFunction) => {
+    const u = req.user!;
+    if (u.role !== "admin") return res.status(403).json({ error: "Admin access required" });
     if (!u[perm]) return res.status(403).json({ error: "Your account does not have this permission" });
     next();
   };

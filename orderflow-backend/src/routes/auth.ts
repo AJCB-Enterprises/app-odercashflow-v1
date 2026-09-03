@@ -20,8 +20,11 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Email and password are required" });
   const { email, password } = parsed.data;
 
-  const user = await one<{ id: string; password_hash: string; role: string; full_name: string; is_active: boolean }>(
-    "SELECT id, password_hash, role, full_name, is_active FROM users WHERE email = $1",
+  const user = await one<{
+    id: string; password_hash: string; role: string; full_name: string; is_active: boolean;
+    can_manage_agents: boolean; can_manage_announcements: boolean;
+  }>(
+    "SELECT id, password_hash, role, full_name, is_active, can_manage_agents, can_manage_announcements FROM users WHERE email = $1",
     [email]
   );
   // Same message for unknown email / wrong password / deactivated account.
@@ -32,7 +35,16 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
   const token = jwt.sign({ sub: user.id, role: user.role }, config.jwtSecret, {
     expiresIn: config.jwtExpires,
   } as jwt.SignOptions);
-  res.json({ token, user: { id: user.id, role: user.role, full_name: user.full_name } });
+  res.json({
+    token,
+    user: {
+      id: user.id,
+      role: user.role,
+      full_name: user.full_name,
+      can_manage_agents: user.can_manage_agents,
+      can_manage_announcements: user.can_manage_announcements,
+    },
+  });
 });
 
 const ChangePasswordBody = z.object({

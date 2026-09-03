@@ -13,11 +13,13 @@ export const createUser = async (opts: {
   password?: string;
   canCreatePo?: boolean;
   canViewInvoices?: boolean;
+  canManageAgents?: boolean;
+  canManageAnnouncements?: boolean;
 }) => {
   const hash = bcrypt.hashSync(opts.password ?? "test-password-123", 4); // low rounds — speed, not security, in tests
   const { rows } = await pool.query(
-    `INSERT INTO users (role, full_name, email, password_hash, can_create_po, can_view_invoices)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    `INSERT INTO users (role, full_name, email, password_hash, can_create_po, can_view_invoices, can_manage_agents, can_manage_announcements)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
     [
       opts.role,
       opts.fullName ?? "Test User",
@@ -25,6 +27,8 @@ export const createUser = async (opts: {
       hash,
       opts.canCreatePo ?? true,
       opts.canViewInvoices ?? true,
+      opts.canManageAgents ?? true,
+      opts.canManageAnnouncements ?? true,
     ]
   );
   return rows[0];

@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
 import { one, q } from "../db";
-import { requireAdmin, requireAuth } from "../middleware/auth";
+import { requireAdminPermission, requireAuth } from "../middleware/auth";
 import { clientEmails, renderTemplate, sendMail } from "../lib/email";
 import { audit } from "../lib/notify";
 
 export const announcementsRouter = Router();
-announcementsRouter.use(requireAuth, requireAdmin);
+announcementsRouter.use(requireAuth, requireAdminPermission("can_manage_announcements"));
 
 /** GET /announcements — history of past broadcasts. */
 announcementsRouter.get("/", async (_req, res) => {

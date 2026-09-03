@@ -46,10 +46,10 @@ export default function Shell() {
               <NavItem to="/admin/orders" label="Order review" />
               <NavItem to="/admin/receipts" label="Receipts to verify" />
               <NavItem to="/admin/reminders" label="Reminder scheduling" />
-              <NavItem to="/admin/agents" label="Agent accounts" />
+              {user.can_manage_agents !== false && <NavItem to="/admin/agents" label="Agent accounts" />}
               <NavItem to="/admin/mapping" label="Agent–client mapping" />
               <NavItem to="/admin/directory" label="Customer directory" />
-              <NavItem to="/admin/announcements" label="Announcements" />
+              {user.can_manage_announcements !== false && <NavItem to="/admin/announcements" label="Announcements" />}
               <NavItem to="/notifications" label="Notifications" badge={unread} />
             </>
           ) : (

@@ -6,6 +6,8 @@ export interface AuthUser {
   id: string;
   role: "admin" | "agent";
   full_name: string;
+  can_manage_agents?: boolean;
+  can_manage_announcements?: boolean;
 }
 
 export const getToken = () => localStorage.getItem("of_token");
