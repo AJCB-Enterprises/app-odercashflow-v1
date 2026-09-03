@@ -12,7 +12,14 @@ describe("client TIN encryption", () => {
     const create = await request(app)
       .post("/clients")
       .set("Authorization", `Bearer ${token}`)
-      .send({ company_name: "Acme Corp", contact_name: "Jam", email: "jam@acme.test", tin: "123-456-789-000" });
+      .send({
+        company_name: "Acme Corp",
+        contact_name: "Jam",
+        email: "jam@acme.test",
+        phone: "0917 000 0000",
+        address: "Davao City",
+        tin: "123-456-789-000",
+      });
 
     expect(create.status).toBe(201);
     expect(create.body.tin).toBe("123-456-789-000");
@@ -31,7 +38,14 @@ describe("client TIN encryption", () => {
     const create = await request(app)
       .post("/clients")
       .set("Authorization", `Bearer ${token}`)
-      .send({ company_name: "Acme Corp", contact_name: "Jam", email: "jam@acme.test" });
+      .send({
+        company_name: "Acme Corp",
+        contact_name: "Jam",
+        email: "jam@acme.test",
+        phone: "0917 000 0000",
+        address: "Davao City",
+        tin: "111-111-111-000",
+      });
 
     const update = await request(app)
       .patch(`/clients/${create.body.id}`)
@@ -49,7 +63,14 @@ describe("client TIN encryption", () => {
     const create = await request(app)
       .post("/clients")
       .set("Authorization", `Bearer ${token}`)
-      .send({ company_name: "Acme Corp", contact_name: "Jam", email: "jam@acme.test" });
+      .send({
+        company_name: "Acme Corp",
+        contact_name: "Jam",
+        email: "jam@acme.test",
+        phone: "0917 000 0000",
+        address: "Davao City",
+        tin: "111-111-111-000",
+      });
 
     await request(app)
       .patch(`/clients/${create.body.id}`)

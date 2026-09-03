@@ -112,12 +112,12 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
         company_name: companyName.trim(),
         contact_name: contactName.trim(),
         email: email.trim(),
-        phone: phone.trim() || undefined,
-        address: address.trim() || undefined,
+        phone: phone.trim(),
+        address: address.trim(),
         payment_terms: paymentTerms,
         vat_status: vatStatus,
         extra_emails: parseEmailList(extraEmails),
-        tin: tin.trim() || undefined,
+        tin: tin.trim(),
         ...(agents ? { agent_id: agentId || null } : {}),
       });
       toast(`${companyName} added to the directory.`);
@@ -129,25 +129,25 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
     }
   };
 
-  const valid = companyName.trim() && contactName.trim() && email.trim();
+  const valid = companyName.trim() && contactName.trim() && email.trim() && phone.trim() && address.trim() && tin.trim();
 
   return (
     <Card title="New client">
       <label className="f" htmlFor="ncc">Company name</label>
-      <input id="ncc" className="f" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+      <input id="ncc" className="f" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
       <label className="f" htmlFor="ncn">Contact name</label>
-      <input id="ncn" className="f" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+      <input id="ncn" className="f" required value={contactName} onChange={(e) => setContactName(e.target.value)} />
       <label className="f" htmlFor="nce">Email</label>
-      <input id="nce" className="f" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input id="nce" className="f" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
       <label className="f" htmlFor="ncxe">Additional emails (optional)</label>
       <textarea id="ncxe" className="f" rows={2} value={extraEmails} onChange={(e) => setExtraEmails(e.target.value)}
         placeholder="One per line or comma-separated — reminders and announcements go to all of them." />
       <label className="f" htmlFor="ncp">Phone</label>
-      <input id="ncp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <input id="ncp" className="f" required value={phone} onChange={(e) => setPhone(e.target.value)} />
       <label className="f" htmlFor="nca">Address</label>
-      <input id="nca" className="f" value={address} onChange={(e) => setAddress(e.target.value)} />
+      <input id="nca" className="f" required value={address} onChange={(e) => setAddress(e.target.value)} />
       <label className="f" htmlFor="ntin">Tax Identification Number (TIN)</label>
-      <input id="ntin" className="f" value={tin} onChange={(e) => setTin(e.target.value)} />
+      <input id="ntin" className="f" required value={tin} onChange={(e) => setTin(e.target.value)} />
       <label className="f" htmlFor="nct">Payment terms</label>
       <select id="nct" className="f" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
         {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -248,14 +248,14 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
         company_name: companyName.trim(),
         contact_name: contactName.trim(),
         email: email.trim(),
-        phone: phone.trim() || undefined,
-        address: address.trim() || undefined,
+        phone: phone.trim(),
+        address: address.trim(),
         notes: notes.trim() || undefined,
         agent_id: agentId || null,
         payment_terms: paymentTerms,
         vat_status: vatStatus,
         extra_emails: parseEmailList(extraEmails),
-        tin: tin.trim() || undefined,
+        tin: tin.trim(),
       });
       toast("Client details updated.");
       onDone();
@@ -266,25 +266,25 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
     }
   };
 
-  const valid = companyName.trim() && contactName.trim() && email.trim();
+  const valid = companyName.trim() && contactName.trim() && email.trim() && phone.trim() && address.trim() && tin.trim();
 
   return (
     <Card title="Edit client">
       <label className="f" htmlFor="ecc">Company name</label>
-      <input id="ecc" className="f" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+      <input id="ecc" className="f" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
       <label className="f" htmlFor="ecn">Contact name</label>
-      <input id="ecn" className="f" value={contactName} onChange={(e) => setContactName(e.target.value)} />
+      <input id="ecn" className="f" required value={contactName} onChange={(e) => setContactName(e.target.value)} />
       <label className="f" htmlFor="ece">Email</label>
-      <input id="ece" className="f" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input id="ece" className="f" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
       <label className="f" htmlFor="ecxe">Additional emails (optional)</label>
       <textarea id="ecxe" className="f" rows={2} value={extraEmails} onChange={(e) => setExtraEmails(e.target.value)}
         placeholder="One per line or comma-separated — reminders and announcements go to all of them." />
       <label className="f" htmlFor="ecp">Phone</label>
-      <input id="ecp" className="f" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <input id="ecp" className="f" required value={phone} onChange={(e) => setPhone(e.target.value)} />
       <label className="f" htmlFor="eca">Address</label>
-      <input id="eca" className="f" value={address} onChange={(e) => setAddress(e.target.value)} />
+      <input id="eca" className="f" required value={address} onChange={(e) => setAddress(e.target.value)} />
       <label className="f" htmlFor="etin">Tax Identification Number (TIN)</label>
-      <input id="etin" className="f" value={tin} onChange={(e) => setTin(e.target.value)} />
+      <input id="etin" className="f" required value={tin} onChange={(e) => setTin(e.target.value)} />
       <ClientDocUpload clientId={client.id} type="bir_cor" label="BIR COR 2303" currentName={birCorName} onUploaded={setBirCorName} />
       <ClientDocUpload clientId={client.id} type="peza_cert" label="PEZA Certificate (Zero-Rated clients)" currentName={pezaCertName} onUploaded={setPezaCertName} />
       <label className="f" htmlFor="ect">Payment terms</label>

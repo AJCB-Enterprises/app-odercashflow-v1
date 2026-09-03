@@ -113,14 +113,14 @@ const ClientBody = z.object({
   company_name: z.string().min(1),
   contact_name: z.string().min(1),
   email: z.string().email(),
-  phone: z.string().optional(),
-  address: z.string().optional(),
+  phone: z.string().min(1, "Phone is required"),
+  address: z.string().min(1, "Address is required"),
   agent_id: z.string().uuid().nullable().optional(),
   notes: z.string().optional(),
   payment_terms: z.enum(["net_15", "net_30", "net_45", "cod"]).optional(),
   vat_status: z.enum(["vat_exempt", "vat_inclusive", "zero_rated"]).optional(),
   extra_emails: z.array(z.string().email()).optional(),
-  tin: z.string().optional(),
+  tin: z.string().min(1, "TIN is required"),
 });
 
 /**
