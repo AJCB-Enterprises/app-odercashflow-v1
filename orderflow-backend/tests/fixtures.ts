@@ -53,6 +53,14 @@ export const createClientRow = async (opts: {
   return rows[0];
 };
 
+export const createOrder = async (opts: { clientId: string; orderNo?: string; status?: "pending" | "approved" | "rejected" | "cancelled" }) => {
+  const { rows } = await pool.query(
+    `INSERT INTO orders (order_no, client_id, status) VALUES ($1, $2, $3) RETURNING *`,
+    [opts.orderNo ?? uniq("SO"), opts.clientId, opts.status ?? "pending"]
+  );
+  return rows[0];
+};
+
 export const createInvoice = async (opts: {
   clientId: string;
   amount: number;

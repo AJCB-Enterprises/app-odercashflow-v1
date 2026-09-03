@@ -178,6 +178,38 @@ const runPaymentReminders = async (s: Settings): Promise<number> => {
   return sent;
 };
 
+/**
+ * Sends a payment reminder right away for a client's currently-due unpaid
+ * invoices, skipping the frequency-days cooldown that normally prevents
+ * re-sending too soon. For when an admin corrects a bad email address —
+ * any prior "sent" reminders almost certainly never reached the client, so
+ * that cooldown would otherwise block the corrected address for days.
+ */
+export const sendImmediateReminderForClient = async (clientId: string): Promise<number> => {
+  const settings = await one<Settings>("SELECT * FROM reminder_settings WHERE type = 'payment'::reminder_type");
+  if (!settings || !settings.is_enabled) return 0;
+
+  const due = await q<DueInvoice>(
+    `SELECT i.id, i.invoice_no,
+            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
+            i.due_date,
+            (i.due_date < CURRENT_DATE) AS is_overdue,
+            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails
+       FROM invoices i
+       JOIN clients c ON c.id = i.client_id
+      WHERE i.status = 'unpaid'
+        AND i.client_id = $1
+        AND i.due_date - make_interval(days => $2) <= now()
+      ORDER BY i.due_date`,
+    [clientId, settings.days_before]
+  );
+  if (!due.length) return 0;
+
+  if (due.length >= 2) await sendStatementOfAccount(due);
+  else await sendPaymentReminder(due[0], settings.template);
+  return due.length;
+};
+
 /** Order reminders for orders still pending review, on the configured cadence. */
 const runOrderReminders = async (s: Settings): Promise<number> => {
   const pending = await q<{

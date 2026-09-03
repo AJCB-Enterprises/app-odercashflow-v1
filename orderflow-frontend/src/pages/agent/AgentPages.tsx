@@ -48,8 +48,6 @@ export function AgentNewOrder() {
   const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
-  const [paymentTerms, setPaymentTerms] = useState("net_30");
-  const [vatStatus, setVatStatus] = useState("vat_inclusive");
   const [poDate, setPoDate] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -64,6 +62,7 @@ export function AgentNewOrder() {
     .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
   const total = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
   const chosen = clientId || clients?.[0]?.id || "";
+  const chosenClient = (clients || []).find((c) => c.id === chosen);
 
   const submit = async () => {
     setBusy(true);
@@ -71,8 +70,6 @@ export function AgentNewOrder() {
       const form = new FormData();
       form.append("client_id", chosen);
       form.append("items", JSON.stringify(clean));
-      form.append("payment_terms", paymentTerms);
-      form.append("vat_status", vatStatus);
       if (poDate) form.append("po_date", poDate);
       if (poNumber.trim()) form.append("po_number", poNumber.trim());
       if (file) form.append("file", file);
@@ -97,14 +94,14 @@ export function AgentNewOrder() {
           <select id="poc" className="f" style={{ maxWidth: 340 }} value={chosen} onChange={(e) => setClientId(e.target.value)}>
             {(clients || []).map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
           </select>
-          <label className="f" htmlFor="pot">Payment terms</label>
-          <select id="pot" className="f" style={{ maxWidth: 340 }} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
-            {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <label className="f" htmlFor="pov">VAT status</label>
-          <select id="pov" className="f" style={{ maxWidth: 340 }} value={vatStatus} onChange={(e) => setVatStatus(e.target.value)}>
-            {VAT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+          {chosenClient && (
+            <p className="dim" style={{ marginTop: -6, marginBottom: 14, fontSize: 12.5 }}>
+              {PAYMENT_TERM_OPTIONS.find((o) => o.value === chosenClient.payment_terms)?.label || chosenClient.payment_terms}
+              {" · "}
+              {VAT_STATUS_OPTIONS.find((o) => o.value === chosenClient.vat_status)?.label || chosenClient.vat_status}
+              {" — set on the client's record; edit there to change it."}
+            </p>
+          )}
           <label className="f" htmlFor="pod">Purchase order date</label>
           <input id="pod" className="f" type="date" style={{ maxWidth: 340 }} value={poDate} onChange={(e) => setPoDate(e.target.value)} />
           <label className="f" htmlFor="pon">Purchase order number</label>

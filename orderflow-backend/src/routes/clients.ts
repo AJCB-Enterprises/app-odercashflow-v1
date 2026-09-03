@@ -7,6 +7,7 @@ import { clientScopeSql, requireAdmin, requireAuth } from "../middleware/auth";
 import { audit } from "../lib/notify";
 import { config } from "../config";
 import { decryptField, encryptField } from "../lib/crypto";
+import { sendImmediateReminderForClient } from "../worker/reminders";
 import { readClientDocument, saveClientDocument, sanitizeFilename, validateUpload } from "../lib/storage";
 
 export const clientsRouter = Router();
@@ -154,6 +155,9 @@ clientsRouter.patch("/:id", requireAdmin, async (req, res) => {
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => (k === "tin" && v ? [k, encryptField(v as string)] : [k, v]));
   if (!fields.length) return res.status(400).json({ error: "Nothing to update" });
+
+  const before = b.email !== undefined ? await one<{ email: string }>("SELECT email FROM clients WHERE id = $1", [req.params.id]) : null;
+
   const sets = fields.map(([k], i) => `${k} = $${i + 2}`).join(", ");
   const row = await one(
     `UPDATE clients SET ${sets}, updated_at = now() WHERE id = $1 RETURNING *`,
@@ -163,6 +167,16 @@ clientsRouter.patch("/:id", requireAdmin, async (req, res) => {
   // tin is never logged in plaintext, even here — the audit trail shouldn't hold what the column encrypts.
   await audit(req.user!.id, "client.updated", "client", row.id, { ...b, ...(b.tin !== undefined ? { tin: "[redacted]" } : {}) });
   if (row.tin) row.tin = decryptField(row.tin);
+
+  // A corrected email means prior reminders almost certainly never reached
+  // the client — send one right away instead of waiting on the frequency
+  // cooldown those undelivered sends would otherwise impose.
+  if (before && b.email && before.email.toLowerCase() !== b.email.toLowerCase()) {
+    sendImmediateReminderForClient(row.id).catch((e) =>
+      console.error(`immediate reminder after email correction failed for client ${row.id}:`, e.message)
+    );
+  }
+
   res.json(row);
 });
 
