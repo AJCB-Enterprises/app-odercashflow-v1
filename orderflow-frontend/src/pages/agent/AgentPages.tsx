@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
 import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, PAYMENT_TERM_OPTIONS, useData, useToast, VAT_STATUS_OPTIONS } from "../../components";
@@ -48,6 +48,7 @@ export function AgentNewOrder() {
   const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
+  const [paymentTerms, setPaymentTerms] = useState("net_30");
   const [poDate, setPoDate] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -64,12 +65,20 @@ export function AgentNewOrder() {
   const chosen = clientId || clients?.[0]?.id || "";
   const chosenClient = (clients || []).find((c) => c.id === chosen);
 
+  // Payment terms default to whatever's normal for this client, but this
+  // order can deviate (e.g. usually Net 30, this one's COD) -- VAT status
+  // can't; that's fixed on the client's own record.
+  useEffect(() => {
+    if (chosenClient) setPaymentTerms(chosenClient.payment_terms);
+  }, [chosenClient?.id]);
+
   const submit = async () => {
     setBusy(true);
     try {
       const form = new FormData();
       form.append("client_id", chosen);
       form.append("items", JSON.stringify(clean));
+      form.append("payment_terms", paymentTerms);
       if (poDate) form.append("po_date", poDate);
       if (poNumber.trim()) form.append("po_number", poNumber.trim());
       if (file) form.append("file", file);
@@ -94,11 +103,13 @@ export function AgentNewOrder() {
           <select id="poc" className="f" style={{ maxWidth: 340 }} value={chosen} onChange={(e) => setClientId(e.target.value)}>
             {(clients || []).map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
           </select>
+          <label className="f" htmlFor="pot">Payment terms</label>
+          <select id="pot" className="f" style={{ maxWidth: 340 }} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
+            {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
           {chosenClient && (
             <p className="dim" style={{ marginTop: -6, marginBottom: 14, fontSize: 12.5 }}>
-              {PAYMENT_TERM_OPTIONS.find((o) => o.value === chosenClient.payment_terms)?.label || chosenClient.payment_terms}
-              {" · "}
-              {VAT_STATUS_OPTIONS.find((o) => o.value === chosenClient.vat_status)?.label || chosenClient.vat_status}
+              VAT status: {VAT_STATUS_OPTIONS.find((o) => o.value === chosenClient.vat_status)?.label || chosenClient.vat_status}
               {" — set on the client's record; edit there to change it."}
             </p>
           )}

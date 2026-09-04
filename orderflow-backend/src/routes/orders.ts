@@ -105,6 +105,11 @@ const OrderBody = z.object({
       })
     )
     .min(1),
+  // The same client can order under different terms order to order (e.g.
+  // usually Net 30, sometimes COD) -- defaults to the client's own record
+  // when omitted. VAT status has no such override: it's always the
+  // client's own record, set by admin only.
+  payment_terms: z.enum(["net_15", "net_30", "net_45", "cod"]).optional(),
   po_date: z.string().date().optional().or(z.literal("")),
   po_number: z.string().optional(),
 });
@@ -131,7 +136,7 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimit
   }
   const parsed = OrderBody.safeParse({ ...req.body, items: itemsInput });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
-  const { client_id, items, po_date, po_number } = parsed.data;
+  const { client_id, items, payment_terms, po_date, po_number } = parsed.data;
 
   let attachment: { ext: string; mime: string } | null = null;
   if (req.file) {
@@ -153,7 +158,7 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimit
       `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status, po_date, po_number)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [
-        orderNo, client_id, user.id, clientRow.payment_terms, clientRow.vat_status,
+        orderNo, client_id, user.id, payment_terms ?? clientRow.payment_terms, clientRow.vat_status,
         po_date || null, po_number?.trim() || null,
       ]
     );
