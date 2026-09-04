@@ -88,6 +88,14 @@ export function ClientDetail() {
     }
   };
 
+  const viewReceipt = async (invoiceId: string) => {
+    try {
+      await api.openBlob(`/invoices/${invoiceId}/receipt`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
   const viewEwt = async (invoiceId: string) => {
     try {
       await api.openBlob(`/invoices/${invoiceId}/receipt/ewt`);
@@ -197,6 +205,11 @@ export function ClientDetail() {
                 <td className="num">{fmtDate(i.due_date)}</td>
                 <td><InvoiceChip inv={i} /></td>
                 <td className="right" style={{ whiteSpace: "nowrap" }}>
+                  {i.receipt_name && (
+                    <>
+                      <button className="btn sm ghost" onClick={() => viewReceipt(i.id)}>View receipt</button>{" "}
+                    </>
+                  )}
                   {i.ewt_name && (
                     <>
                       <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>{" "}
