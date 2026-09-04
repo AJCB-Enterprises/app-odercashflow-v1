@@ -4,10 +4,24 @@ import { app } from "../../src/app";
 import { createUser, tokenFor } from "../fixtures";
 
 describe("restricted admin accounts", () => {
-  it("blocks a restricted admin from Agent Accounts routes", async () => {
+  it("blocks a restricted admin from managing agent/admin accounts", async () => {
+    const restricted = await createUser({ role: "admin", canManageAgents: false });
+    const token = tokenFor(restricted);
+
+    const listAdmins = await request(app).get("/agents/admins").set("Authorization", `Bearer ${token}`);
+    expect(listAdmins.status).toBe(403);
+
+    const createAgent = await request(app)
+      .post("/agents")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ full_name: "X", email: "x@example.com", password: "a-real-password" });
+    expect(createAgent.status).toBe(403);
+  });
+
+  it("still lets a restricted admin use the Agent–client mapping page (read-only agent list)", async () => {
     const restricted = await createUser({ role: "admin", canManageAgents: false });
     const res = await request(app).get("/agents").set("Authorization", `Bearer ${tokenFor(restricted)}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   it("blocks a restricted admin from Announcements routes", async () => {
@@ -42,8 +56,11 @@ describe("restricted admin accounts", () => {
     // And that account really is restricted, end to end.
     const login = await request(app).post("/auth/login").send({ email: "ar@ajcb.com.ph", password: "a-real-password" });
     expect(login.body.user.can_manage_agents).toBe(false);
-    const blocked = await request(app).get("/agents").set("Authorization", `Bearer ${login.body.token}`);
+    const blocked = await request(app).get("/agents/admins").set("Authorization", `Bearer ${login.body.token}`);
     expect(blocked.status).toBe(403);
+    // But the read-only agent list (Agent–client mapping) still works.
+    const mapping = await request(app).get("/agents").set("Authorization", `Bearer ${login.body.token}`);
+    expect(mapping.status).toBe(200);
   });
 
   it("a new admin defaults to full access unless restricted", async () => {

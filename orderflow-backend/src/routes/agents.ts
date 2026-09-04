@@ -2,11 +2,16 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { one, q } from "../db";
-import { requireAdminPermission, requireAuth } from "../middleware/auth";
+import { requireAdmin, requireAdminPermission, requireAuth } from "../middleware/auth";
 import { audit } from "../lib/notify";
 
 export const agentsRouter = Router();
-agentsRouter.use(requireAuth, requireAdminPermission("can_manage_agents"));
+agentsRouter.use(requireAuth, requireAdmin);
+// The two reads below (agent list + client drill-down) also back the
+// Agent–client mapping page, which every admin can use regardless of
+// can_manage_agents -- only the actual account-management actions below are
+// gated to that permission specifically.
+const manageAgents = requireAdminPermission("can_manage_agents");
 
 /** GET /agents — accounts with client counts, plus each agent's client group (mapping view). */
 agentsRouter.get("/", async (_req, res) => {
@@ -43,7 +48,7 @@ const CreateAgent = z.object({
 });
 
 /** POST /agents — create an agent account. */
-agentsRouter.post("/", async (req, res) => {
+agentsRouter.post("/", manageAgents, async (req, res) => {
   const parsed = CreateAgent.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const b = parsed.data;
@@ -68,7 +73,7 @@ const PatchAgent = z.object({
 });
 
 /** PATCH /agents/:id — toggle active status and permissions. */
-agentsRouter.patch("/:id", async (req, res) => {
+agentsRouter.patch("/:id", manageAgents, async (req, res) => {
   const parsed = PatchAgent.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const fields = Object.entries(parsed.data).filter(([, v]) => v !== undefined);
@@ -87,7 +92,7 @@ agentsRouter.patch("/:id", async (req, res) => {
 });
 
 /** GET /agents/admins — every admin account and its restricted-access flags. */
-agentsRouter.get("/admins", async (_req, res) => {
+agentsRouter.get("/admins", manageAgents, async (_req, res) => {
   const rows = await q(
     `SELECT id, full_name, email, is_active, can_manage_agents, can_manage_announcements
        FROM users WHERE role = 'admin' ORDER BY full_name`
@@ -104,7 +109,7 @@ const CreateAdmin = z.object({
 });
 
 /** POST /agents/admins — create an admin account, optionally restricted. */
-agentsRouter.post("/admins", async (req, res) => {
+agentsRouter.post("/admins", manageAgents, async (req, res) => {
   const parsed = CreateAdmin.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const b = parsed.data;
@@ -132,7 +137,7 @@ const PatchAdmin = z.object({
 });
 
 /** PATCH /agents/admins/:id — toggle another admin's active status and permissions. */
-agentsRouter.patch("/admins/:id", async (req, res) => {
+agentsRouter.patch("/admins/:id", manageAgents, async (req, res) => {
   if (req.params.id === req.user!.id)
     return res.status(400).json({ error: "You can't change your own permissions here — ask another admin." });
 
