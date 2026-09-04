@@ -10,6 +10,7 @@
     "start": "node dist/migrate.js && node dist/index.js",
     "migrate": "tsx src/migrate.ts",
     "seed": "tsx src/seed.ts",
+    "create-admin": "tsx src/create-admin.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
