@@ -96,6 +96,15 @@ export function ClientDetail() {
     }
   };
 
+  const resendReminder = async (invoiceId: string, invoiceNo: string) => {
+    try {
+      await api.post(`/invoices/${invoiceId}/resend-reminder`);
+      toast(`Payment reminder resent for ${invoiceNo}.`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
   const viewEwt = async (invoiceId: string) => {
     try {
       await api.openBlob(`/invoices/${invoiceId}/receipt/ewt`);
@@ -208,6 +217,11 @@ export function ClientDetail() {
                   {i.receipt_name && (
                     <>
                       <button className="btn sm ghost" onClick={() => viewReceipt(i.id)}>View receipt</button>{" "}
+                    </>
+                  )}
+                  {i.status === "unpaid" && (
+                    <>
+                      <button className="btn sm ghost" onClick={() => resendReminder(i.id, i.invoice_no)}>Resend reminder</button>{" "}
                     </>
                   )}
                   {i.ewt_name && (

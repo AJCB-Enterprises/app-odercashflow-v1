@@ -6,6 +6,7 @@ import { ewtUploadUrl, issueUploadToken, revokeInvoiceTokens } from "../lib/toke
 import { audit } from "../lib/notify";
 import { clientEmails, sendMail } from "../lib/email";
 import { readEwtForm, readReceipt } from "../lib/storage";
+import { resendReminderForInvoice } from "../worker/reminders";
 
 export const invoicesRouter = Router();
 invoicesRouter.use(requireAuth);
@@ -126,6 +127,23 @@ invoicesRouter.post("/:id/ewt-link", requireAdmin, async (req, res) => {
   );
   await audit(req.user!.id, "invoice.ewt_link_sent", "invoice", inv.id, { invoice_no: inv.invoice_no });
   res.json({ ok: true, sent_to: clientEmails(client) });
+});
+
+/**
+ * POST /invoices/:id/resend-reminder — admin manually resends the payment
+ * reminder for one invoice, any time. Bypasses the scheduler's days-before
+ * window and frequency-days cooldown, since a deliberate click shouldn't be
+ * second-guessed by rules meant to pace automatic sends.
+ */
+invoicesRouter.post("/:id/resend-reminder", requireAdmin, async (req, res) => {
+  const invoiceId = String(req.params.id);
+  try {
+    await resendReminderForInvoice(invoiceId);
+  } catch (err: any) {
+    return res.status(409).json({ error: err.message });
+  }
+  await audit(req.user!.id, "invoice.reminder_resent", "invoice", invoiceId);
+  res.json({ ok: true });
 });
 
 const PaymentBody = z.object({

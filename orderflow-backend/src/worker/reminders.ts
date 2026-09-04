@@ -241,6 +241,33 @@ export const sendImmediateReminderForClient = async (clientId: string): Promise<
   return due.length;
 };
 
+/**
+ * Admin explicitly resending one invoice's reminder, on demand. Bypasses
+ * both the days-before window and the frequency-days cooldown -- those
+ * exist to pace the automatic scheduler, not to second-guess a deliberate
+ * manual click. Always a single-invoice email, even if the client has
+ * other invoices due (unlike the scheduler, which would consolidate them).
+ */
+export const resendReminderForInvoice = async (invoiceId: string): Promise<void> => {
+  const settings = await one<Settings>("SELECT * FROM reminder_settings WHERE type = 'payment'::reminder_type");
+  if (!settings) throw new Error("Payment reminder settings not found");
+
+  const inv = await one<DueInvoice>(
+    `SELECT i.id, i.invoice_no,
+            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
+            i.due_date,
+            (i.due_date < CURRENT_DATE) AS is_overdue,
+            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails
+       FROM invoices i
+       JOIN clients c ON c.id = i.client_id
+      WHERE i.id = $1 AND i.status = 'unpaid'`,
+    [invoiceId]
+  );
+  if (!inv) throw new Error("Invoice not found or already settled");
+
+  await sendPaymentReminder(inv, settings.template);
+};
+
 /** Order reminders for orders still pending review, on the configured cadence. */
 const runOrderReminders = async (s: Settings): Promise<number> => {
   const pending = await q<{
