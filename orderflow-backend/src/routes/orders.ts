@@ -3,7 +3,7 @@ import multer from "multer";
 import { z } from "zod";
 import { one, q, tx } from "../db";
 import { clientScopeSql, requireAdmin, requireAgentPermission, requireAuth } from "../middleware/auth";
-import { nextDocNo, peso, shortDate } from "../lib/numbering";
+import { DUE_DAYS, nextDocNo, peso, shortDate } from "../lib/numbering";
 import { audit, notifyAdmins, notifyUser } from "../lib/notify";
 import { sendMail } from "../lib/email";
 import { config } from "../config";
@@ -70,7 +70,7 @@ ordersRouter.get("/:id", async (req, res) => {
 
   const order = await one(
     `SELECT o.*, c.company_name, c.contact_name, c.email AS client_email, u.full_name AS agent_name,
-            c.tin, c.bir_cor_name, c.peza_cert_name
+            c.tin, c.bir_cor_name, c.peza_cert_name, c.consolidated_invoicing
        FROM orders o JOIN clients c ON c.id = o.client_id
        LEFT JOIN users u ON u.id = o.created_by
       WHERE o.id = $1${scope.sql}`,
@@ -113,9 +113,6 @@ const OrderBody = z.object({
   po_date: z.string().date().optional().or(z.literal("")),
   po_number: z.string().optional(),
 });
-
-/** Days until due for each payment term; COD invoices are due immediately. */
-const DUE_DAYS: Record<string, number> = { net_15: 15, net_30: 30, net_45: 45, cod: 0 };
 
 const PAYMENT_TERM_LABELS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", cod: "COD" };
 const VAT_STATUS_LABELS: Record<string, string> = { vat_exempt: "SO/ DR", vat_inclusive: "VAT-Inclusive", zero_rated: "Zero-Rated" };
@@ -213,7 +210,7 @@ ordersRouter.get("/:id/attachment", async (req, res) => {
 });
 
 const ApproveBody = z.object({
-  invoice_no: z.string().trim().min(1, "Sales Invoice number is required"),
+  invoice_no: z.string().trim().min(1, "Sales Invoice number is required").optional(),
 });
 
 /**
@@ -221,14 +218,29 @@ const ApproveBody = z.object({
  * Invoice number (SI books are official pre-numbered documents, so the app
  * never invents one). Due date is still derived from the order's payment
  * terms. Notifies the agent, emails the client.
+ *
+ * Exception: clients flagged consolidated_invoicing get invoiced later, as
+ * one Sales Invoice covering several approved orders (see
+ * POST /clients/:id/consolidated-invoice) — approving their order just marks
+ * it delivered, with no invoice_no required and no invoice created here.
  */
 ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
   const user = req.user!;
   const parsed = ApproveBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+
+  const target = await one<{ consolidated_invoicing: boolean }>(
+    `SELECT c.consolidated_invoicing FROM orders o JOIN clients c ON c.id = o.client_id WHERE o.id = $1`,
+    [req.params.id]
+  );
+  if (!target) return res.status(404).json({ error: "Order not found" });
+  const consolidated = target.consolidated_invoicing;
+
+  if (!consolidated && !parsed.data.invoice_no)
+    return res.status(400).json({ error: "Sales Invoice number is required" });
   const invoiceNo = parsed.data.invoice_no;
 
-  let result;
+  let result: { order: any; invoice: any } | null;
   try {
     result = await tx(async (c) => {
       const ordRes = await c.query(
@@ -238,8 +250,20 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
       );
       const order = ordRes.rows[0];
       if (!order) return null;
-      const dueDays = DUE_DAYS[order.payment_terms] ?? 30;
 
+      if (consolidated) {
+        if (order.created_by)
+          await notifyUser(
+            order.created_by,
+            `${order.order_no} was approved and marked delivered. It will be billed later on a consolidated invoice.`,
+            `/orders/${order.id}`,
+            c
+          );
+        await audit(user.id, "order.approved", "order", order.id, { consolidated_invoicing: true }, c);
+        return { order, invoice: null };
+      }
+
+      const dueDays = DUE_DAYS[order.payment_terms] ?? 30;
       const totalRes = await c.query(
         "SELECT coalesce(sum(qty * unit_price), 0) AS total FROM order_items WHERE order_id = $1",
         [order.id]
@@ -272,14 +296,14 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
     "SELECT company_name, contact_name, email, extra_emails FROM clients WHERE id = $1",
     [result.order.client_id]
   );
-  if (client)
+  if (client && result.invoice)
     sendOrderApprovedNotice(result.order, result.invoice, client).catch((e) =>
       console.error("approval email failed:", e.message)
     );
 
   // COD is due on delivery, i.e. right now — send the payment reminder (with
   // the upload link) immediately instead of waiting for the next 15-minute tick.
-  if (client && result.order.payment_terms === "cod") {
+  if (client && result.invoice && result.order.payment_terms === "cod") {
     one<{ template: string; is_enabled: boolean }>(
       "SELECT template, is_enabled FROM reminder_settings WHERE type = 'payment'"
     )
@@ -305,7 +329,7 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
 
   // Internal copy of the full approved order — sales/fulfillment don't have
   // app logins, so this is their only view into what was just approved.
-  if (config.salesForwardEmail && client) {
+  if (config.salesForwardEmail && client && result.invoice) {
     Promise.all([
       result.order.created_by
         ? one<{ full_name: string }>("SELECT full_name FROM users WHERE id = $1", [result.order.created_by])

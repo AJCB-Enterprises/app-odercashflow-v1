@@ -113,6 +113,14 @@ export function AgentNewOrder() {
               {" — set on the client's record; edit there to change it."}
             </p>
           )}
+          {chosenClient && (
+            <p className="dim" style={{ marginTop: -6, marginBottom: 14, fontSize: 12.5 }}>
+              Billing: {chosenClient.consolidated_invoicing
+                ? "Consolidated — this client is invoiced once per PO, not per order."
+                : "Per order — invoiced when this order is approved."}
+              {" — set on the client's record; edit there to change it."}
+            </p>
+          )}
           <label className="f" htmlFor="pod">Purchase order date</label>
           <input id="pod" className="f" type="date" style={{ maxWidth: 340 }} value={poDate} onChange={(e) => setPoDate(e.target.value)} />
           <label className="f" htmlFor="pon">Purchase order number</label>

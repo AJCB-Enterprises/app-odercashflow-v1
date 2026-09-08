@@ -72,8 +72,15 @@ export function OrderDetail() {
     setBusy(true);
     try {
       if (action === "approve") {
-        const res = await api.post(`/orders/${id}/approve`, { invoice_no: invoiceNo.trim() });
-        toast(`${order.order_no} approved · ${res.invoice.invoice_no} issued (${peso(res.invoice.amount)})`);
+        const res = await api.post(
+          `/orders/${id}/approve`,
+          order.consolidated_invoicing ? {} : { invoice_no: invoiceNo.trim() }
+        );
+        toast(
+          res.invoice
+            ? `${order.order_no} approved · ${res.invoice.invoice_no} issued (${peso(res.invoice.amount)})`
+            : `${order.order_no} approved — marked delivered. It will be billed on a consolidated invoice.`
+        );
       } else {
         await api.post(`/orders/${id}/reject`, { reason: reason.trim() });
         toast(`${order.order_no} rejected${reason.trim() ? " with reason." : "."}`);
@@ -167,14 +174,24 @@ export function OrderDetail() {
 
       {order.status === "pending" && (
         <Card title="Decision">
-          <label className="f" htmlFor="sin">Sales Invoice number (required to approve)</label>
-          <input id="sin" className="f" style={{ maxWidth: 340 }} value={invoiceNo}
-            onChange={(e) => setInvoiceNo(e.target.value)} placeholder="e.g. SI-2026-0001" />
+          {order.consolidated_invoicing ? (
+            <p className="dim" style={{ marginBottom: 14 }}>
+              This client uses consolidated invoicing — approving marks the order delivered. The Sales Invoice
+              is generated later, from the client's page, once the whole PO has been delivered.
+            </p>
+          ) : (
+            <>
+              <label className="f" htmlFor="sin">Sales Invoice number (required to approve)</label>
+              <input id="sin" className="f" style={{ maxWidth: 340 }} value={invoiceNo}
+                onChange={(e) => setInvoiceNo(e.target.value)} placeholder="e.g. SI-2026-0001" />
+            </>
+          )}
           <label className="f" htmlFor="rej">Rejection reason or comment (optional)</label>
           <textarea id="rej" className="f" rows={2} value={reason} onChange={(e) => setReason(e.target.value)}
             placeholder="e.g. Settle outstanding invoice first, or adjust quantities." />
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button className="btn green" disabled={busy || !invoiceNo.trim()} onClick={() => decide("approve")}>Approve order</button>
+            <button className="btn green" disabled={busy || (!order.consolidated_invoicing && !invoiceNo.trim())}
+              onClick={() => decide("approve")}>Approve order</button>
             <button className="btn red" disabled={busy} onClick={() => decide("reject")}>Reject order</button>
           </div>
         </Card>

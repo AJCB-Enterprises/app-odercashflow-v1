@@ -87,6 +87,28 @@ export const sendOrderApprovedNotice = (
 };
 
 /**
+ * The "your consolidated invoice is ready" notification, sent once when
+ * admin bundles a consolidated-invoicing client's delivered orders into one
+ * Sales Invoice (POST /clients/:id/consolidated-invoice). Parallel to
+ * sendOrderApprovedNotice, but for the deferred-invoicing path.
+ */
+export const sendConsolidatedInvoiceNotice = (
+  invoice: { invoice_no: string; amount: string | number; due_date: string },
+  orderNos: string[],
+  client: { contact_name: string; email: string | null; extra_emails?: string[] }
+) => {
+  const recipients = clientEmails(client);
+  if (!recipients.length) return Promise.resolve({ providerId: "skipped-no-email" });
+  return sendMail(
+    recipients,
+    `Invoice ${invoice.invoice_no} — consolidated billing for ${orderNos.length} order(s)`,
+    `Hi ${client.contact_name}, all items for orders ${orderNos.join(", ")} have now been delivered. ` +
+      `A consolidated invoice ${invoice.invoice_no} for ${peso(invoice.amount)} is due on ` +
+      `${shortDate(invoice.due_date)}. You'll receive payment reminders with a secure upload link.`
+  );
+};
+
+/**
  * Sends one payment reminder email for an invoice and logs it (same
  * transaction, so a crash after sendMail can't double-send next tick).
  * Shared by the scheduled batch run and any real-time trigger (e.g. COD).

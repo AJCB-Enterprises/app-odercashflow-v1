@@ -19,6 +19,9 @@ export const nextDocNo = async (client: PoolClient, kind: "SO"): Promise<string>
   return `${kind}-${year}-${n}`;
 };
 
+/** Days until due for each payment term; COD invoices are due immediately. */
+export const DUE_DAYS: Record<string, number> = { net_15: 15, net_30: 30, net_45: 45, cod: 0 };
+
 export const peso = (amount: string | number) =>
   "₱" + Number(amount).toLocaleString("en-PH", { minimumFractionDigits: 2 });
 

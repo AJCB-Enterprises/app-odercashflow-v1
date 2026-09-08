@@ -69,6 +69,9 @@ export function ClientDetail() {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [consolidateInvoiceNo, setConsolidateInvoiceNo] = useState("");
+  const [consolidating, setConsolidating] = useState(false);
 
   if (loading) return <Loading />;
   if (error || !data) return <ErrorBox msg={error || "Client not found"} />;
@@ -132,6 +135,38 @@ export function ClientDetail() {
     }
   };
 
+  const toggleOrderSelected = (orderId: string) => {
+    setSelectedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
+
+  const readyToConsolidate = (orders as any[]).filter((o) => o.status === "approved" && !o.is_invoiced);
+  const consolidateTotal = readyToConsolidate
+    .filter((o) => selectedOrders.has(o.id))
+    .reduce((s, o) => s + Number(o.total), 0);
+
+  const generateConsolidatedInvoice = async () => {
+    setConsolidating(true);
+    try {
+      await api.post(`/clients/${client.id}/consolidated-invoice`, {
+        order_ids: Array.from(selectedOrders),
+        invoice_no: consolidateInvoiceNo.trim(),
+      });
+      toast(`Consolidated invoice ${consolidateInvoiceNo.trim()} generated.`);
+      setSelectedOrders(new Set());
+      setConsolidateInvoiceNo("");
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setConsolidating(false);
+    }
+  };
+
   return (
     <>
       <button className="back" onClick={() => navigate("/admin/directory")}>← Back to directory</button>
@@ -140,6 +175,7 @@ export function ClientDetail() {
           <h1 className="page">{client.company_name}</h1>
           <p className="pagesub">
             {client.contact_name} · {client.email || "no email"} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
+            {client.consolidated_invoicing && " · Consolidated invoicing"}
           </p>
           {client.extra_emails?.length > 0 && (
             <p className="dim" style={{ marginTop: -8 }}>Also cc'd: {client.extra_emails.join(", ")}</p>
@@ -202,6 +238,45 @@ export function ClientDetail() {
         </table>
       </Card>
 
+      {client.consolidated_invoicing && (
+        <Card title="Ready to consolidate" hint="delivered orders not yet billed — bundle them into one invoice">
+          {readyToConsolidate.length === 0 ? (
+            <p className="dim">No delivered orders are waiting to be invoiced.</p>
+          ) : (
+            <>
+              {Object.entries(
+                readyToConsolidate.reduce((groups: Record<string, any[]>, o) => {
+                  const key = o.po_number || "No PO number";
+                  (groups[key] ||= []).push(o);
+                  return groups;
+                }, {})
+              ).map(([poNumber, orders]) => (
+                <div key={poNumber} style={{ marginBottom: 10 }}>
+                  <div className="dim" style={{ fontSize: 12.5, marginBottom: 4 }}>PO {poNumber}</div>
+                  {orders.map((o) => (
+                    <label key={o.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
+                      <input type="checkbox" checked={selectedOrders.has(o.id)} onChange={() => toggleOrderSelected(o.id)} />
+                      <span className="num strong">{o.order_no}</span>
+                      <span className="dim">{fmtDate(o.created_at)}</span>
+                      <span className="num" style={{ marginLeft: "auto" }}>{peso(o.total)}</span>
+                    </label>
+                  ))}
+                </div>
+              ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+                <span>Selected total: <strong>{peso(consolidateTotal)}</strong></span>
+                <input className="f" style={{ maxWidth: 220, marginBottom: 0 }} placeholder="Sales Invoice number"
+                  value={consolidateInvoiceNo} onChange={(e) => setConsolidateInvoiceNo(e.target.value)} />
+                <button className="btn sm" disabled={!selectedOrders.size || !consolidateInvoiceNo.trim() || consolidating}
+                  onClick={generateConsolidatedInvoice}>
+                  {consolidating ? "Generating…" : "Generate consolidated invoice"}
+                </button>
+              </div>
+            </>
+          )}
+        </Card>
+      )}
+
       <Card title="Invoice status" pad={false}>
         <table className="ledger">
           <thead><tr><th>Invoice</th><th className="right">Amount</th><th>Due</th><th>Status</th><th /></tr></thead>
@@ -219,6 +294,12 @@ export function ClientDetail() {
                   )}
                   {i.ewt_name && (
                     <div className="dim" style={{ fontSize: 12.5 }}>2307 on file</div>
+                  )}
+                  {i.covered_orders && (
+                    <div className="dim" style={{ fontSize: 12.5 }}>
+                      Covers: {i.covered_orders.map((o: any) => o.order_no).join(", ")}
+                      {i.covered_orders[0]?.po_number ? ` (PO ${i.covered_orders[0].po_number})` : ""}
+                    </div>
                   )}
                 </td>
                 <td className="num">{fmtDate(i.due_date)}</td>

@@ -102,6 +102,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
   const [vatStatus, setVatStatus] = useState("vat_inclusive");
   const [extraEmails, setExtraEmails] = useState("");
   const [tin, setTin] = useState("");
+  const [consolidatedInvoicing, setConsolidatedInvoicing] = useState(false);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -118,6 +119,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
         vat_status: vatStatus,
         extra_emails: parseEmailList(extraEmails),
         tin: tin.trim(),
+        consolidated_invoicing: consolidatedInvoicing,
         ...(agents ? { agent_id: agentId || null } : {}),
       });
       toast(`${companyName} added to the directory.`);
@@ -156,6 +158,11 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
       <select id="ncv" className="f" value={vatStatus} onChange={(e) => setVatStatus(e.target.value)}>
         {VAT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+      <label className="f" htmlFor="ncci" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input id="ncci" type="checkbox" checked={consolidatedInvoicing}
+          onChange={(e) => setConsolidatedInvoicing(e.target.checked)} />
+        Consolidated invoicing (bill this client once per PO instead of per order)
+      </label>
       {agents && (
         <>
           <label className="f" htmlFor="ncg">Assign to agent</label>
@@ -220,7 +227,7 @@ function ClientDocUpload({ clientId, type, label, currentName, onUploaded }: {
 
 /* ---- edit client form (admin only, can reassign agent) ---- */
 export function EditClientForm({ client, agents, onDone, onCancel }: {
-  client: { id: string; company_name: string; contact_name: string; email: string | null; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[]; tin?: string; bir_cor_name?: string; peza_cert_name?: string };
+  client: { id: string; company_name: string; contact_name: string; email: string | null; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[]; tin?: string; bir_cor_name?: string; peza_cert_name?: string; consolidated_invoicing?: boolean };
   agents: { id: string; full_name: string }[];
   onDone: () => void;
   onCancel: () => void;
@@ -236,6 +243,7 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
   const [vatStatus, setVatStatus] = useState(client.vat_status || "vat_inclusive");
   const [extraEmails, setExtraEmails] = useState((client.extra_emails || []).join("\n"));
   const [tin, setTin] = useState(client.tin || "");
+  const [consolidatedInvoicing, setConsolidatedInvoicing] = useState(!!client.consolidated_invoicing);
   const [birCorName, setBirCorName] = useState(client.bir_cor_name || "");
   const [pezaCertName, setPezaCertName] = useState(client.peza_cert_name || "");
   const [busy, setBusy] = useState(false);
@@ -256,6 +264,7 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
         vat_status: vatStatus,
         extra_emails: parseEmailList(extraEmails),
         tin: tin.trim(),
+        consolidated_invoicing: consolidatedInvoicing,
       });
       toast("Client details updated.");
       onDone();
@@ -295,6 +304,11 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
       <select id="ecv" className="f" value={vatStatus} onChange={(e) => setVatStatus(e.target.value)}>
         {VAT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+      <label className="f" htmlFor="ecci" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input id="ecci" type="checkbox" checked={consolidatedInvoicing}
+          onChange={(e) => setConsolidatedInvoicing(e.target.checked)} />
+        Consolidated invoicing (bill this client once per PO instead of per order)
+      </label>
       <label className="f" htmlFor="ecg">Assign to agent</label>
       <select id="ecg" className="f" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
         <option value="">Unassigned</option>

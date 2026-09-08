@@ -43,26 +43,38 @@ export const createClientRow = async (opts: {
   email?: string | null;
   agentId?: string | null;
   tin?: string | null;
+  consolidatedInvoicing?: boolean;
 } = {}) => {
   const { rows } = await pool.query(
-    `INSERT INTO clients (company_name, contact_name, email, agent_id, tin) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    `INSERT INTO clients (company_name, contact_name, email, agent_id, tin, consolidated_invoicing) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
     [
       opts.companyName ?? "Test Co",
       opts.contactName ?? "Test Contact",
       opts.email === undefined ? `${uniq("client")}@example.com` : opts.email,
       opts.agentId ?? null,
       opts.tin ?? null,
+      opts.consolidatedInvoicing ?? false,
     ]
   );
   return rows[0];
 };
 
-export const createOrder = async (opts: { clientId: string; orderNo?: string; status?: "pending" | "approved" | "rejected" | "cancelled" }) => {
+export const createOrder = async (opts: {
+  clientId: string;
+  orderNo?: string;
+  status?: "pending" | "approved" | "rejected" | "cancelled";
+  items?: { description: string; qty: number; unit_price: number }[];
+}) => {
   const { rows } = await pool.query(
     `INSERT INTO orders (order_no, client_id, status) VALUES ($1, $2, $3) RETURNING *`,
     [opts.orderNo ?? uniq("SO"), opts.clientId, opts.status ?? "pending"]
   );
-  return rows[0];
+  const order = rows[0];
+  for (const it of opts.items ?? [])
+    await pool.query("INSERT INTO order_items (order_id, description, qty, unit_price) VALUES ($1,$2,$3,$4)", [
+      order.id, it.description, it.qty, it.unit_price,
+    ]);
+  return order;
 };
 
 export const createInvoice = async (opts: {
