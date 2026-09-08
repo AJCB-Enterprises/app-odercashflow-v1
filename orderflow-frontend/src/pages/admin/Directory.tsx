@@ -227,7 +227,10 @@ export function ClientDetail() {
           <tbody>
             {orders.map((o: any) => (
               <tr key={o.id} className="rowbtn" onClick={() => navigate(`/admin/orders/${o.id}`)}>
-                <td className="num strong">{o.order_no}</td>
+                <td className="num strong">
+                  {o.order_no}
+                  {o.dr_no && <div className="dim" style={{ fontSize: 12.5 }}>DR {o.dr_no}</div>}
+                </td>
                 <td className="num right">{peso(o.total)}</td>
                 <td className="num">{fmtDate(o.created_at)}</td>
                 <td><OrderChip status={o.status} /></td>
@@ -257,6 +260,7 @@ export function ClientDetail() {
                     <label key={o.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
                       <input type="checkbox" checked={selectedOrders.has(o.id)} onChange={() => toggleOrderSelected(o.id)} />
                       <span className="num strong">{o.order_no}</span>
+                      {o.dr_no && <span className="dim">DR {o.dr_no}</span>}
                       <span className="dim">{fmtDate(o.created_at)}</span>
                       <span className="num" style={{ marginLeft: "auto" }}>{peso(o.total)}</span>
                     </label>
@@ -297,8 +301,8 @@ export function ClientDetail() {
                   )}
                   {i.covered_orders && (
                     <div className="dim" style={{ fontSize: 12.5 }}>
-                      Covers: {i.covered_orders.map((o: any) => o.order_no).join(", ")}
-                      {i.covered_orders[0]?.po_number ? ` (PO ${i.covered_orders[0].po_number})` : ""}
+                      Covers: {i.covered_orders.map((o: any) => o.dr_no ? `${o.order_no} (DR ${o.dr_no})` : o.order_no).join(", ")}
+                      {i.covered_orders[0]?.po_number ? ` — PO ${i.covered_orders[0].po_number}` : ""}
                     </div>
                   )}
                 </td>

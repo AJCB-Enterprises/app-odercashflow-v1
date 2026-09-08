@@ -211,6 +211,7 @@ ordersRouter.get("/:id/attachment", async (req, res) => {
 
 const ApproveBody = z.object({
   invoice_no: z.string().trim().min(1, "Sales Invoice number is required").optional(),
+  dr_no: z.string().trim().min(1, "Delivery Receipt (DR) number is required").optional(),
 });
 
 /**
@@ -223,6 +224,9 @@ const ApproveBody = z.object({
  * one Sales Invoice covering several approved orders (see
  * POST /clients/:id/consolidated-invoice) — approving their order just marks
  * it delivered, with no invoice_no required and no invoice created here.
+ * Instead it requires a Delivery Receipt (DR) number, the proof-of-delivery
+ * document for that specific delivery, so the eventual consolidated invoice
+ * can be traced back to every DR it bills.
  */
 ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
   const user = req.user!;
@@ -238,15 +242,21 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
 
   if (!consolidated && !parsed.data.invoice_no)
     return res.status(400).json({ error: "Sales Invoice number is required" });
+  if (consolidated && !parsed.data.dr_no)
+    return res.status(400).json({ error: "Delivery Receipt (DR) number is required" });
   const invoiceNo = parsed.data.invoice_no;
+  const drNo = parsed.data.dr_no;
 
   let result: { order: any; invoice: any } | null;
   try {
     result = await tx(async (c) => {
       const ordRes = await c.query(
-        `UPDATE orders SET status = 'approved', reviewed_by = $2, reviewed_at = now()
-          WHERE id = $1 AND status = 'pending' RETURNING *`,
-        [req.params.id, user.id]
+        consolidated
+          ? `UPDATE orders SET status = 'approved', reviewed_by = $2, reviewed_at = now(), dr_no = $3
+              WHERE id = $1 AND status = 'pending' RETURNING *`
+          : `UPDATE orders SET status = 'approved', reviewed_by = $2, reviewed_at = now()
+              WHERE id = $1 AND status = 'pending' RETURNING *`,
+        consolidated ? [req.params.id, user.id, drNo] : [req.params.id, user.id]
       );
       const order = ordRes.rows[0];
       if (!order) return null;
@@ -255,11 +265,11 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
         if (order.created_by)
           await notifyUser(
             order.created_by,
-            `${order.order_no} was approved and marked delivered. It will be billed later on a consolidated invoice.`,
+            `${order.order_no} was approved and marked delivered (DR ${drNo}). It will be billed later on a consolidated invoice.`,
             `/orders/${order.id}`,
             c
           );
-        await audit(user.id, "order.approved", "order", order.id, { consolidated_invoicing: true }, c);
+        await audit(user.id, "order.approved", "order", order.id, { consolidated_invoicing: true, dr_no: drNo }, c);
         return { order, invoice: null };
       }
 
@@ -286,7 +296,11 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
       return { order, invoice };
     });
   } catch (err: any) {
-    if (err?.code === "23505") return res.status(409).json({ error: `Invoice number ${invoiceNo} is already in use` });
+    if (err?.code === "23505") {
+      if (err.constraint === "idx_orders_dr_no_unique")
+        return res.status(409).json({ error: `DR number ${drNo} is already in use` });
+      return res.status(409).json({ error: `Invoice number ${invoiceNo} is already in use` });
+    }
     throw err;
   }
   if (!result) return res.status(409).json({ error: "Order is not pending review" });

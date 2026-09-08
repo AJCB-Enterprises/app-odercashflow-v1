@@ -44,6 +44,7 @@ export function OrderDetail() {
   const toast = useToast();
   const [reason, setReason] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
+  const [drNo, setDrNo] = useState("");
   const [busy, setBusy] = useState(false);
   const { data, error, loading, reload } = useData<any>(() => api.get(`/orders/${id}`), [id]);
 
@@ -74,7 +75,7 @@ export function OrderDetail() {
       if (action === "approve") {
         const res = await api.post(
           `/orders/${id}/approve`,
-          order.consolidated_invoicing ? {} : { invoice_no: invoiceNo.trim() }
+          order.consolidated_invoicing ? { dr_no: drNo.trim() } : { invoice_no: invoiceNo.trim() }
         );
         toast(
           res.invoice
@@ -111,6 +112,9 @@ export function OrderDetail() {
             <> · <button className="btn sm ghost" onClick={() => viewAttachment(order.id)}>View attached document</button></>
           )}
         </p>
+      )}
+      {order.dr_no && (
+        <p className="dim" style={{ marginTop: -8, marginBottom: 16 }}>DR: {order.dr_no}</p>
       )}
       <div style={{ marginBottom: 16 }}>
         {order.status === "approved" && <span className="stamp green">Approved</span>}
@@ -175,10 +179,15 @@ export function OrderDetail() {
       {order.status === "pending" && (
         <Card title="Decision">
           {order.consolidated_invoicing ? (
-            <p className="dim" style={{ marginBottom: 14 }}>
-              This client uses consolidated invoicing — approving marks the order delivered. The Sales Invoice
-              is generated later, from the client's page, once the whole PO has been delivered.
-            </p>
+            <>
+              <p className="dim" style={{ marginBottom: 10 }}>
+                This client uses consolidated invoicing — approving marks the order delivered. The Sales Invoice
+                is generated later, from the client's page, once the whole PO has been delivered.
+              </p>
+              <label className="f" htmlFor="drn">Delivery Receipt (DR) number (required to approve)</label>
+              <input id="drn" className="f" style={{ maxWidth: 340 }} value={drNo}
+                onChange={(e) => setDrNo(e.target.value)} placeholder="e.g. DR-2026-0001" />
+            </>
           ) : (
             <>
               <label className="f" htmlFor="sin">Sales Invoice number (required to approve)</label>
@@ -190,7 +199,8 @@ export function OrderDetail() {
           <textarea id="rej" className="f" rows={2} value={reason} onChange={(e) => setReason(e.target.value)}
             placeholder="e.g. Settle outstanding invoice first, or adjust quantities." />
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button className="btn green" disabled={busy || (!order.consolidated_invoicing && !invoiceNo.trim())}
+            <button className="btn green"
+              disabled={busy || (order.consolidated_invoicing ? !drNo.trim() : !invoiceNo.trim())}
               onClick={() => decide("approve")}>Approve order</button>
             <button className="btn red" disabled={busy} onClick={() => decide("reject")}>Reject order</button>
           </div>

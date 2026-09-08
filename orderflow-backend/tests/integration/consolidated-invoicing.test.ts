@@ -5,7 +5,7 @@ import { pool } from "../../src/db";
 import { createClientRow, createInvoice, createOrder, createUser, tokenFor } from "../fixtures";
 
 describe("order approval for consolidated-invoicing clients", () => {
-  it("marks the order delivered without creating an invoice", async () => {
+  it("marks the order delivered without creating an invoice, and records the DR number", async () => {
     const admin = await createUser({ role: "admin" });
     const client = await createClientRow({ consolidatedInvoicing: true });
     const order = await createOrder({ clientId: client.id, items: [{ description: "Widget", qty: 2, unit_price: 50 }] });
@@ -13,10 +13,11 @@ describe("order approval for consolidated-invoicing clients", () => {
     const res = await request(app)
       .post(`/orders/${order.id}/approve`)
       .set("Authorization", `Bearer ${tokenFor(admin)}`)
-      .send({});
+      .send({ dr_no: "DR-2026-0001" });
 
     expect(res.status).toBe(200);
     expect(res.body.order.status).toBe("approved");
+    expect(res.body.order.dr_no).toBe("DR-2026-0001");
     expect(res.body.invoice).toBeNull();
 
     const { rows } = await pool.query("SELECT * FROM invoices WHERE order_id = $1", [order.id]);
@@ -34,6 +35,39 @@ describe("order approval for consolidated-invoicing clients", () => {
       .send({});
 
     expect(res.status).toBe(400);
+  });
+
+  it("requires a DR number for a consolidated-invoicing client", async () => {
+    const admin = await createUser({ role: "admin" });
+    const client = await createClientRow({ consolidatedInvoicing: true });
+    const order = await createOrder({ clientId: client.id, items: [{ description: "Widget", qty: 1, unit_price: 50 }] });
+
+    const res = await request(app)
+      .post(`/orders/${order.id}/approve`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a duplicate DR number", async () => {
+    const admin = await createUser({ role: "admin" });
+    const client = await createClientRow({ consolidatedInvoicing: true });
+    const orderA = await createOrder({ clientId: client.id, items: [{ description: "A", qty: 1, unit_price: 10 }] });
+    const orderB = await createOrder({ clientId: client.id, items: [{ description: "B", qty: 1, unit_price: 10 }] });
+
+    const first = await request(app)
+      .post(`/orders/${orderA.id}/approve`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ dr_no: "DR-2026-0099" });
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .post(`/orders/${orderB.id}/approve`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ dr_no: "dr-2026-0099" }); // case-insensitive duplicate
+    expect(second.status).toBe(409);
+    expect(second.body.error).toMatch(/DR number/i);
   });
 });
 

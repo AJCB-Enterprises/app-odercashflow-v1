@@ -88,7 +88,7 @@ clientsRouter.get("/:id", async (req, res) => {
 
   const [orders, invoices] = await Promise.all([
     q(
-      `SELECT o.id, o.order_no, o.status, o.reject_reason, o.created_at, o.po_number, o.po_date,
+      `SELECT o.id, o.order_no, o.status, o.reject_reason, o.created_at, o.po_number, o.po_date, o.dr_no,
               coalesce(sum(oi.qty * oi.unit_price), 0) AS total,
               (EXISTS (SELECT 1 FROM invoices iv WHERE iv.order_id = o.id)
                OR EXISTS (SELECT 1 FROM invoice_orders io WHERE io.order_id = o.id)) AS is_invoiced
@@ -102,7 +102,7 @@ clientsRouter.get("/:id", async (req, res) => {
               (amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0)) AS balance_due,
               COALESCE((SELECT SUM(ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0) AS total_ewt,
               (SELECT original_name FROM receipts WHERE invoice_id = invoices.id ORDER BY uploaded_at DESC LIMIT 1) AS receipt_name,
-              (SELECT json_agg(json_build_object('order_no', o.order_no, 'po_number', o.po_number) ORDER BY o.order_no)
+              (SELECT json_agg(json_build_object('order_no', o.order_no, 'po_number', o.po_number, 'dr_no', o.dr_no) ORDER BY o.order_no)
                  FROM invoice_orders io JOIN orders o ON o.id = io.order_id WHERE io.invoice_id = invoices.id) AS covered_orders
          FROM invoices WHERE client_id = $1 ORDER BY due_date DESC`,
       [req.params.id]
