@@ -176,6 +176,7 @@ export function ClientDetail() {
           <p className="pagesub">
             {client.contact_name} · {client.email || "no email"} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
             {client.consolidated_invoicing && " · Consolidated invoicing"}
+            {client.collects_in_person && " · Check/in-person collection"}
           </p>
           {client.extra_emails?.length > 0 && (
             <p className="dim" style={{ marginTop: -8 }}>Also cc'd: {client.extra_emails.join(", ")}</p>

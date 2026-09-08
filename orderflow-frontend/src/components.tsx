@@ -103,6 +103,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
   const [extraEmails, setExtraEmails] = useState("");
   const [tin, setTin] = useState("");
   const [consolidatedInvoicing, setConsolidatedInvoicing] = useState(false);
+  const [collectsInPerson, setCollectsInPerson] = useState(false);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -120,6 +121,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
         extra_emails: parseEmailList(extraEmails),
         tin: tin.trim(),
         consolidated_invoicing: consolidatedInvoicing,
+        collects_in_person: collectsInPerson,
         ...(agents ? { agent_id: agentId || null } : {}),
       });
       toast(`${companyName} added to the directory.`);
@@ -162,6 +164,11 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
         <input id="ncci" type="checkbox" checked={consolidatedInvoicing}
           onChange={(e) => setConsolidatedInvoicing(e.target.checked)} />
         Consolidated invoicing (bill this client once per PO instead of per order)
+      </label>
+      <label className="f" htmlFor="ncip" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input id="ncip" type="checkbox" checked={collectsInPerson}
+          onChange={(e) => setCollectsInPerson(e.target.checked)} />
+        Check payment / in-person collection (client won't use the self-service payment link)
       </label>
       {agents && (
         <>
@@ -227,7 +234,7 @@ function ClientDocUpload({ clientId, type, label, currentName, onUploaded }: {
 
 /* ---- edit client form (admin only, can reassign agent) ---- */
 export function EditClientForm({ client, agents, onDone, onCancel }: {
-  client: { id: string; company_name: string; contact_name: string; email: string | null; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[]; tin?: string; bir_cor_name?: string; peza_cert_name?: string; consolidated_invoicing?: boolean };
+  client: { id: string; company_name: string; contact_name: string; email: string | null; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[]; tin?: string; bir_cor_name?: string; peza_cert_name?: string; consolidated_invoicing?: boolean; collects_in_person?: boolean };
   agents: { id: string; full_name: string }[];
   onDone: () => void;
   onCancel: () => void;
@@ -244,6 +251,7 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
   const [extraEmails, setExtraEmails] = useState((client.extra_emails || []).join("\n"));
   const [tin, setTin] = useState(client.tin || "");
   const [consolidatedInvoicing, setConsolidatedInvoicing] = useState(!!client.consolidated_invoicing);
+  const [collectsInPerson, setCollectsInPerson] = useState(!!client.collects_in_person);
   const [birCorName, setBirCorName] = useState(client.bir_cor_name || "");
   const [pezaCertName, setPezaCertName] = useState(client.peza_cert_name || "");
   const [busy, setBusy] = useState(false);
@@ -265,6 +273,7 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
         extra_emails: parseEmailList(extraEmails),
         tin: tin.trim(),
         consolidated_invoicing: consolidatedInvoicing,
+        collects_in_person: collectsInPerson,
       });
       toast("Client details updated.");
       onDone();
@@ -308,6 +317,11 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
         <input id="ecci" type="checkbox" checked={consolidatedInvoicing}
           onChange={(e) => setConsolidatedInvoicing(e.target.checked)} />
         Consolidated invoicing (bill this client once per PO instead of per order)
+      </label>
+      <label className="f" htmlFor="ecip" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input id="ecip" type="checkbox" checked={collectsInPerson}
+          onChange={(e) => setCollectsInPerson(e.target.checked)} />
+        Check payment / in-person collection (client won't use the self-service payment link)
       </label>
       <label className="f" htmlFor="ecg">Assign to agent</label>
       <select id="ecg" className="f" value={agentId} onChange={(e) => setAgentId(e.target.value)}>

@@ -62,7 +62,14 @@ interface DueInvoice {
   contact_name: string;
   email: string | null;
   extra_emails?: string[];
+  collects_in_person?: boolean;
 }
+
+/** The upload-link sentence, or an in-person-collection note for clients who won't use it. */
+const paymentInstructions = (collectsInPerson: boolean | undefined, url: string) =>
+  collectsInPerson
+    ? "This account is set up for check payment with in-person collection — our team will reach out to collect it. No action needed online."
+    : `Upload your receipt here (secure link, no login needed):\n${url}`;
 
 /**
  * The "your order was approved" notification. Sent once at approval time,
@@ -128,7 +135,7 @@ export const sendPaymentReminder = async (inv: DueInvoice, template: string): Pr
         invoice: inv.invoice_no,
         amount: peso(inv.amount),
         due: shortDate(inv.due_date),
-      }) + `\n\nUpload your receipt here (secure link, no login needed):\n${uploadUrl(rawToken)}`;
+      }) + `\n\n${paymentInstructions(inv.collects_in_person, uploadUrl(rawToken))}`;
 
     const logRes = await c.query(
       `INSERT INTO reminder_logs (type, invoice_id, client_id, sent_to, subject)
@@ -159,7 +166,11 @@ export const sendStatementOfAccount = async (invoices: DueInvoice[]): Promise<vo
       (inv, i) =>
         `  - ${inv.invoice_no} — ${peso(inv.amount)} — due ${shortDate(inv.due_date)}${
           inv.is_overdue ? " (OVERDUE)" : ""
-        }\n    Upload receipt: ${uploadUrl(tokens[i])}`
+        }\n    ${
+          first.collects_in_person
+            ? "Set up for check payment with in-person collection."
+            : `Upload receipt: ${uploadUrl(tokens[i])}`
+        }`
     );
     const subject = `Statement of Account — ${invoices.length} invoice(s) outstanding`;
     const body =
@@ -194,7 +205,7 @@ const runPaymentReminders = async (s: Settings): Promise<number> => {
             (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
             i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
-            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails
+            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails, c.collects_in_person
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
       WHERE i.status = 'unpaid'
@@ -241,7 +252,7 @@ export const sendImmediateReminderForClient = async (clientId: string): Promise<
             (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
             i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
-            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails,
+            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails, c.collects_in_person,
             o.id AS order_id, o.order_no
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
@@ -290,7 +301,7 @@ export const resendReminderForInvoice = async (invoiceId: string): Promise<{ man
             (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
             i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
-            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails
+            c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails, c.collects_in_person
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
       WHERE i.id = $1 AND i.status = 'unpaid'`,

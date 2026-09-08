@@ -51,7 +51,7 @@ invoicesRouter.get("/", requireAgentPermission("can_view_invoices"), async (req,
             ${BALANCE_DUE_SQL} AS balance_due,
             ${TOTAL_EWT_SQL} AS total_ewt,
             i.ewt_name,
-            c.id AS client_id, c.company_name,
+            c.id AS client_id, c.company_name, c.collects_in_person,
             r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at
        FROM invoices i
        JOIN clients c ON c.id = i.client_id

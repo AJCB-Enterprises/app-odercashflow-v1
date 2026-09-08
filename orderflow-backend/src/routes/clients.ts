@@ -49,7 +49,7 @@ clientsRouter.get("/", async (req, res) => {
 
   const rows = await q(
     `SELECT c.id, c.company_name, c.contact_name, c.email, c.phone, c.address, c.agent_id,
-            c.payment_terms, c.vat_status, c.extra_emails, c.consolidated_invoicing,
+            c.payment_terms, c.vat_status, c.extra_emails, c.consolidated_invoicing, c.collects_in_person,
             u.full_name AS agent_name,
             count(o.id) FILTER (WHERE o.id IS NOT NULL) AS order_count,
             count(i.id) FILTER (WHERE i.status IN ('unpaid','receipt_uploaded')) AS open_invoice_count,
@@ -129,6 +129,7 @@ const ClientBody = z.object({
   extra_emails: z.array(z.string().email()).optional(),
   tin: z.string().min(1, "TIN is required"),
   consolidated_invoicing: z.boolean().optional(),
+  collects_in_person: z.boolean().optional(),
 });
 
 /**
@@ -141,12 +142,12 @@ clientsRouter.post("/", async (req, res) => {
   const b = parsed.data;
   const agentId = req.user!.role === "admin" ? (b.agent_id ?? null) : req.user!.id;
   const row = await one(
-    `INSERT INTO clients (company_name, contact_name, email, phone, address, agent_id, notes, payment_terms, vat_status, extra_emails, tin, consolidated_invoicing)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+    `INSERT INTO clients (company_name, contact_name, email, phone, address, agent_id, notes, payment_terms, vat_status, extra_emails, tin, consolidated_invoicing, collects_in_person)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
     [
       b.company_name, b.contact_name, b.email || null, b.phone ?? null, b.address ?? null, agentId, b.notes ?? null,
       b.payment_terms ?? "net_30", b.vat_status ?? "vat_inclusive", b.extra_emails ?? [], b.tin ? encryptField(b.tin) : null,
-      b.consolidated_invoicing ?? false,
+      b.consolidated_invoicing ?? false, b.collects_in_person ?? false,
     ]
   );
   await audit(req.user!.id, "client.created", "client", row.id);

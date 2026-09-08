@@ -44,9 +44,10 @@ export const createClientRow = async (opts: {
   agentId?: string | null;
   tin?: string | null;
   consolidatedInvoicing?: boolean;
+  collectsInPerson?: boolean;
 } = {}) => {
   const { rows } = await pool.query(
-    `INSERT INTO clients (company_name, contact_name, email, agent_id, tin, consolidated_invoicing) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    `INSERT INTO clients (company_name, contact_name, email, agent_id, tin, consolidated_invoicing, collects_in_person) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
     [
       opts.companyName ?? "Test Co",
       opts.contactName ?? "Test Contact",
@@ -54,6 +55,7 @@ export const createClientRow = async (opts: {
       opts.agentId ?? null,
       opts.tin ?? null,
       opts.consolidatedInvoicing ?? false,
+      opts.collectsInPerson ?? false,
     ]
   );
   return rows[0];

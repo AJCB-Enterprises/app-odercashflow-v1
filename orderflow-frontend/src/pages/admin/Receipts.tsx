@@ -3,7 +3,7 @@ import { api, fmtTime, peso } from "../../api";
 import { Card, ErrorBox, Loading, useData, useToast } from "../../components";
 
 export default function Receipts() {
-  const { data, error, loading, reload } = useData<any[]>(() => api.get("/invoices?state=receipt_uploaded"), []);
+  const { data, error, loading, reload } = useData<any[]>(() => api.get("/invoices?state=open"), []);
   const toast = useToast();
 
   const [recording, setRecording] = useState<string | null>(null);
@@ -56,12 +56,13 @@ export default function Receipts() {
 
   return (
     <>
-      <h1 className="page">Receipts to verify</h1>
+      <h1 className="page">Payments</h1>
       <p className="pagesub">
-        Clients uploaded these payment receipts through their secure links. Verify against your bank
-        records, enter what actually came in — including any BIR EWT withheld, per the client's Form
-        2307 — then record it. An invoice only closes out once the balance reaches zero; a short
-        payment stays open for the remainder and keeps sending reminders automatically.
+        Record payments as they come in — verify a client's uploaded receipt against your bank records,
+        or record one collected in person (check payment, cash, etc). Enter what actually came in —
+        including any BIR EWT withheld, per the client's Form 2307. An invoice only closes out once the
+        balance reaches zero; a short payment stays open for the remainder and keeps sending reminders
+        automatically.
       </p>
       {error && <ErrorBox msg={error} />}
       <Card pad={false}>
@@ -74,12 +75,19 @@ export default function Receipts() {
               {(data || []).map((i) => (
                 <tr key={i.id}>
                   <td className="num strong">{i.invoice_no}</td>
-                  <td>{i.company_name}</td>
+                  <td>
+                    {i.company_name}
+                    {i.collects_in_person && <span className="chip amber" style={{ marginLeft: 8 }}>Check/in-person</span>}
+                  </td>
                   <td className="num right">{peso(i.balance_due)}</td>
-                  <td className="num">{i.receipt_name}</td>
+                  <td className="num">{i.receipt_name || <span className="dim">No receipt uploaded</span>}</td>
                   <td className="num">{i.receipt_uploaded_at ? fmtTime(i.receipt_uploaded_at) : "—"}</td>
                   <td className="right" style={{ whiteSpace: "nowrap" }}>
-                    <button className="btn sm ghost" onClick={() => view(i.id)}>View</button>{" "}
+                    {i.receipt_name && (
+                      <>
+                        <button className="btn sm ghost" onClick={() => view(i.id)}>View</button>{" "}
+                      </>
+                    )}
                     {i.ewt_name && (
                       <>
                         <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>{" "}
@@ -104,7 +112,7 @@ export default function Receipts() {
                   </td>
                 </tr>
               ))}
-              {!data?.length && <tr><td colSpan={6} className="empty">No receipts waiting for verification.</td></tr>}
+              {!data?.length && <tr><td colSpan={6} className="empty">Nothing outstanding right now.</td></tr>}
             </tbody>
           </table>
         )}
