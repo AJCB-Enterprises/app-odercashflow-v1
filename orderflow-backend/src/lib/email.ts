@@ -40,6 +40,6 @@ export const sendMail = async (to: string | string[], subject: string, text: str
 export const renderTemplate = (tpl: string, vars: Record<string, string>) =>
   tpl.replace(/\{\{(\w+)\}\}/g, (m, key) => (key in vars ? vars[key] : m));
 
-/** A client's primary email plus any extra addresses, deduplicated. */
-export const clientEmails = (c: { email: string; extra_emails?: string[] | null }): string[] =>
-  Array.from(new Set([c.email, ...(c.extra_emails || [])].filter(Boolean)));
+/** A client's primary email plus any extra addresses, deduplicated. Empty if the client has no email at all. */
+export const clientEmails = (c: { email: string | null; extra_emails?: string[] | null }): string[] =>
+  Array.from(new Set([c.email, ...(c.extra_emails || [])].filter(Boolean))) as string[];

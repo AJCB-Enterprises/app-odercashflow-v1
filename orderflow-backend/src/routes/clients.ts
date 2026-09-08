@@ -114,7 +114,7 @@ clientsRouter.get("/:id", async (req, res) => {
 const ClientBody = z.object({
   company_name: z.string().min(1),
   contact_name: z.string().min(1),
-  email: z.string().email(),
+  email: z.union([z.string().email(), z.literal("")]).optional(),
   phone: z.string().min(1, "Phone is required"),
   address: z.string().min(1, "Address is required"),
   agent_id: z.string().uuid().nullable().optional(),
@@ -138,7 +138,7 @@ clientsRouter.post("/", async (req, res) => {
     `INSERT INTO clients (company_name, contact_name, email, phone, address, agent_id, notes, payment_terms, vat_status, extra_emails, tin)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [
-      b.company_name, b.contact_name, b.email, b.phone ?? null, b.address ?? null, agentId, b.notes ?? null,
+      b.company_name, b.contact_name, b.email || null, b.phone ?? null, b.address ?? null, agentId, b.notes ?? null,
       b.payment_terms ?? "net_30", b.vat_status ?? "vat_inclusive", b.extra_emails ?? [], b.tin ? encryptField(b.tin) : null,
     ]
   );
@@ -154,10 +154,11 @@ clientsRouter.patch("/:id", requireAdmin, async (req, res) => {
   const b = parsed.data;
   const fields = Object.entries(b)
     .filter(([, v]) => v !== undefined)
-    .map(([k, v]) => (k === "tin" && v ? [k, encryptField(v as string)] : [k, v]));
+    .map(([k, v]) => (k === "tin" && v ? [k, encryptField(v as string)] : [k, v]))
+    .map(([k, v]) => (k === "email" && v === "" ? [k, null] : [k, v]));
   if (!fields.length) return res.status(400).json({ error: "Nothing to update" });
 
-  const before = b.email !== undefined ? await one<{ email: string }>("SELECT email FROM clients WHERE id = $1", [req.params.id]) : null;
+  const before = b.email !== undefined ? await one<{ email: string | null }>("SELECT email FROM clients WHERE id = $1", [req.params.id]) : null;
 
   const sets = fields.map(([k], i) => `${k} = $${i + 2}`).join(", ");
   const row = await one(
@@ -172,7 +173,7 @@ clientsRouter.patch("/:id", requireAdmin, async (req, res) => {
   // A corrected email means prior reminders almost certainly never reached
   // the client — send one right away instead of waiting on the frequency
   // cooldown those undelivered sends would otherwise impose.
-  if (before && b.email && before.email.toLowerCase() !== b.email.toLowerCase()) {
+  if (before && b.email && before.email?.toLowerCase() !== b.email.toLowerCase()) {
     sendImmediateReminderForClient(row.id).catch((e) =>
       console.error(`immediate reminder after email correction failed for client ${row.id}:`, e.message)
     );

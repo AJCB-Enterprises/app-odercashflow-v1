@@ -40,7 +40,7 @@ export function Directory() {
               {(data || []).map((c) => (
                 <tr key={c.id} className="rowbtn" onClick={() => navigate(`/admin/directory/${c.id}`)}>
                   <td className="strong">{c.company_name}</td>
-                  <td>{c.contact_name}<div className="dim num">{c.email} · {c.phone || "no phone"}</div></td>
+                  <td>{c.contact_name}<div className="dim num">{c.email || "no email"} · {c.phone || "no phone"}</div></td>
                   <td className="dim">{c.address || "—"}</td>
                   <td>{c.agent_name || "—"}</td>
                   <td className="num">{c.order_count}</td>
@@ -98,8 +98,13 @@ export function ClientDetail() {
 
   const resendReminder = async (invoiceId: string, invoiceNo: string) => {
     try {
-      await api.post(`/invoices/${invoiceId}/resend-reminder`);
-      toast(`Payment reminder resent for ${invoiceNo}.`);
+      const res = await api.post(`/invoices/${invoiceId}/resend-reminder`);
+      if (res.manual && res.url) {
+        await navigator.clipboard.writeText(res.url);
+        toast(`No email on file for this client — link for ${invoiceNo} copied, share it manually.`);
+      } else {
+        toast(`Payment reminder resent for ${invoiceNo}.`);
+      }
     } catch (e: any) {
       toast(e.message, true);
     }
@@ -115,8 +120,13 @@ export function ClientDetail() {
 
   const sendEwtLink = async (invoiceId: string, invoiceNo: string) => {
     try {
-      await api.post(`/invoices/${invoiceId}/ewt-link`);
-      toast(`BIR 2307 request sent for ${invoiceNo}.`);
+      const res = await api.post(`/invoices/${invoiceId}/ewt-link`);
+      if (res.manual && res.url) {
+        await navigator.clipboard.writeText(res.url);
+        toast(`No email on file for this client — 2307 link for ${invoiceNo} copied, share it manually.`);
+      } else {
+        toast(`BIR 2307 request sent for ${invoiceNo}.`);
+      }
     } catch (e: any) {
       toast(e.message, true);
     }
@@ -129,7 +139,7 @@ export function ClientDetail() {
         <div>
           <h1 className="page">{client.company_name}</h1>
           <p className="pagesub">
-            {client.contact_name} · {client.email} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
+            {client.contact_name} · {client.email || "no email"} · {client.phone || "no phone"} · {client.address || "no address"} · Agent: {client.agent_name || "—"}
           </p>
           {client.extra_emails?.length > 0 && (
             <p className="dim" style={{ marginTop: -8 }}>Also cc'd: {client.extra_emails.join(", ")}</p>

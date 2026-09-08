@@ -60,7 +60,7 @@ interface DueInvoice {
   is_overdue: boolean;
   client_id: string;
   contact_name: string;
-  email: string;
+  email: string | null;
   extra_emails?: string[];
 }
 
@@ -73,15 +73,18 @@ interface DueInvoice {
 export const sendOrderApprovedNotice = (
   order: { order_no: string },
   invoice: { invoice_no: string; amount: string | number; due_date: string },
-  client: { contact_name: string; email: string; extra_emails?: string[] }
-) =>
-  sendMail(
-    clientEmails(client),
+  client: { contact_name: string; email: string | null; extra_emails?: string[] }
+) => {
+  const recipients = clientEmails(client);
+  if (!recipients.length) return Promise.resolve({ providerId: "skipped-no-email" });
+  return sendMail(
+    recipients,
     `Order ${order.order_no} approved — invoice ${invoice.invoice_no}`,
     `Hi ${client.contact_name}, your order ${order.order_no} has been approved. ` +
       `Invoice ${invoice.invoice_no} for ${peso(invoice.amount)} is due on ` +
       `${shortDate(invoice.due_date)}. You'll receive payment reminders with a secure upload link.`
   );
+};
 
 /**
  * Sends one payment reminder email for an invoice and logs it (same
@@ -91,6 +94,7 @@ export const sendOrderApprovedNotice = (
  */
 export const sendPaymentReminder = async (inv: DueInvoice, template: string): Promise<void> => {
   const recipients = clientEmails(inv);
+  if (!recipients.length) return; // no email on file — nothing to send, nothing to log
   await tx(async (c) => {
     const rawToken = await issueUploadToken(inv.id, c);
     const subject = `Payment reminder — ${inv.invoice_no} ${
@@ -123,6 +127,7 @@ export const sendPaymentReminder = async (inv: DueInvoice, template: string): Pr
 export const sendStatementOfAccount = async (invoices: DueInvoice[]): Promise<void> => {
   const first = invoices[0];
   const recipients = clientEmails(first);
+  if (!recipients.length) return; // no email on file — nothing to send, nothing to log
   await tx(async (c) => {
     const tokens: string[] = [];
     for (const inv of invoices) tokens.push(await issueUploadToken(inv.id, c));
@@ -172,6 +177,7 @@ const runPaymentReminders = async (s: Settings): Promise<number> => {
        JOIN clients c ON c.id = i.client_id
       WHERE i.status = 'unpaid'
         AND i.due_date - make_interval(days => $1) <= now()
+        AND (c.email IS NOT NULL OR cardinality(c.extra_emails) > 0)
         AND NOT EXISTS (
           SELECT 1 FROM reminder_logs rl
            WHERE rl.invoice_id = i.id AND rl.type = 'payment'
@@ -221,6 +227,7 @@ export const sendImmediateReminderForClient = async (clientId: string): Promise<
       WHERE i.status = 'unpaid'
         AND i.client_id = $1
         AND i.due_date - make_interval(days => $2) <= now()
+        AND (c.email IS NOT NULL OR cardinality(c.extra_emails) > 0)
       ORDER BY i.due_date`,
     [clientId, settings.days_before]
   );
@@ -247,8 +254,12 @@ export const sendImmediateReminderForClient = async (clientId: string): Promise<
  * exist to pace the automatic scheduler, not to second-guess a deliberate
  * manual click. Always a single-invoice email, even if the client has
  * other invoices due (unlike the scheduler, which would consolidate them).
+ *
+ * If the client has no email on file, there's nothing to send automatically —
+ * instead a fresh upload link is issued for the admin to copy and share
+ * manually (SMS, Viber, in person).
  */
-export const resendReminderForInvoice = async (invoiceId: string): Promise<void> => {
+export const resendReminderForInvoice = async (invoiceId: string): Promise<{ manual: boolean; url?: string }> => {
   const settings = await one<Settings>("SELECT * FROM reminder_settings WHERE type = 'payment'::reminder_type");
   if (!settings) throw new Error("Payment reminder settings not found");
 
@@ -265,19 +276,26 @@ export const resendReminderForInvoice = async (invoiceId: string): Promise<void>
   );
   if (!inv) throw new Error("Invoice not found or already settled");
 
+  if (!clientEmails(inv).length) {
+    const rawToken = await issueUploadToken(inv.id, undefined, "receipt");
+    return { manual: true, url: uploadUrl(rawToken) };
+  }
+
   await sendPaymentReminder(inv, settings.template);
+  return { manual: false };
 };
 
 /** Order reminders for orders still pending review, on the configured cadence. */
 const runOrderReminders = async (s: Settings): Promise<number> => {
   const pending = await q<{
     id: string; order_no: string; client_id: string; contact_name: string; company_name: string;
-    email: string; extra_emails: string[];
+    email: string | null; extra_emails: string[];
   }>(
     `SELECT o.id, o.order_no, c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails
        FROM orders o
        JOIN clients c ON c.id = o.client_id
       WHERE o.status = 'pending'
+        AND (c.email IS NOT NULL OR cardinality(c.extra_emails) > 0)
         AND NOT EXISTS (
           SELECT 1 FROM reminder_logs rl
            WHERE rl.order_id = o.id AND rl.type = 'order'
@@ -290,6 +308,7 @@ const runOrderReminders = async (s: Settings): Promise<number> => {
   let sent = 0;
   for (const o of pending) {
     const recipients = clientEmails(o);
+    if (!recipients.length) continue; // defense in depth — query already filters this
     try {
       await tx(async (c) => {
         const subject = `Order reminder — ${o.order_no} is awaiting review`;

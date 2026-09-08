@@ -112,21 +112,29 @@ invoicesRouter.post("/:id/ewt-link", requireAdmin, async (req, res) => {
     [req.params.id]
   );
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  const client = await one<{ company_name: string; contact_name: string; email: string; extra_emails: string[] }>(
+  const client = await one<{ company_name: string; contact_name: string; email: string | null; extra_emails: string[] }>(
     "SELECT company_name, contact_name, email, extra_emails FROM clients WHERE id = $1",
     [inv.client_id]
   );
   if (!client) return res.status(404).json({ error: "Client not found" });
 
   const rawToken = await issueUploadToken(inv.id, undefined, "ewt");
+  const url = ewtUploadUrl(rawToken);
+  const recipients = clientEmails(client);
+
+  if (!recipients.length) {
+    await audit(req.user!.id, "invoice.ewt_link_sent", "invoice", inv.id, { invoice_no: inv.invoice_no, manual: true });
+    return res.json({ ok: true, manual: true, url });
+  }
+
   await sendMail(
-    clientEmails(client),
+    recipients,
     `Please submit your BIR Form 2307 for ${inv.invoice_no}`,
     `Hi ${client.contact_name}, could you please submit your BIR Form 2307 (Certificate of Creditable ` +
-      `Tax Withheld) for invoice ${inv.invoice_no}?\n\nUpload it here (secure link, no login needed):\n${ewtUploadUrl(rawToken)}`
+      `Tax Withheld) for invoice ${inv.invoice_no}?\n\nUpload it here (secure link, no login needed):\n${url}`
   );
   await audit(req.user!.id, "invoice.ewt_link_sent", "invoice", inv.id, { invoice_no: inv.invoice_no });
-  res.json({ ok: true, sent_to: clientEmails(client) });
+  res.json({ ok: true, sent_to: recipients });
 });
 
 /**
@@ -137,13 +145,14 @@ invoicesRouter.post("/:id/ewt-link", requireAdmin, async (req, res) => {
  */
 invoicesRouter.post("/:id/resend-reminder", requireAdmin, async (req, res) => {
   const invoiceId = String(req.params.id);
+  let result: { manual: boolean; url?: string };
   try {
-    await resendReminderForInvoice(invoiceId);
+    result = await resendReminderForInvoice(invoiceId);
   } catch (err: any) {
     return res.status(409).json({ error: err.message });
   }
-  await audit(req.user!.id, "invoice.reminder_resent", "invoice", invoiceId);
-  res.json({ ok: true });
+  await audit(req.user!.id, "invoice.reminder_resent", "invoice", invoiceId, { manual: result.manual });
+  res.json({ ok: true, ...result });
 });
 
 const PaymentBody = z.object({

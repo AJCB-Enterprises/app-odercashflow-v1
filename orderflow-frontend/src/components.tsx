@@ -129,7 +129,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
     }
   };
 
-  const valid = companyName.trim() && contactName.trim() && email.trim() && phone.trim() && address.trim() && tin.trim();
+  const valid = companyName.trim() && contactName.trim() && phone.trim() && address.trim() && tin.trim();
 
   return (
     <Card title="New client">
@@ -137,8 +137,8 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
       <input id="ncc" className="f" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
       <label className="f" htmlFor="ncn">Contact name</label>
       <input id="ncn" className="f" required value={contactName} onChange={(e) => setContactName(e.target.value)} />
-      <label className="f" htmlFor="nce">Email</label>
-      <input id="nce" className="f" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+      <label className="f" htmlFor="nce">Email (optional)</label>
+      <input id="nce" className="f" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <label className="f" htmlFor="ncxe">Additional emails (optional)</label>
       <textarea id="ncxe" className="f" rows={2} value={extraEmails} onChange={(e) => setExtraEmails(e.target.value)}
         placeholder="One per line or comma-separated — reminders and announcements go to all of them." />
@@ -220,14 +220,14 @@ function ClientDocUpload({ clientId, type, label, currentName, onUploaded }: {
 
 /* ---- edit client form (admin only, can reassign agent) ---- */
 export function EditClientForm({ client, agents, onDone, onCancel }: {
-  client: { id: string; company_name: string; contact_name: string; email: string; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[]; tin?: string; bir_cor_name?: string; peza_cert_name?: string };
+  client: { id: string; company_name: string; contact_name: string; email: string | null; phone?: string; address?: string; agent_id?: string; notes?: string; payment_terms?: string; vat_status?: string; extra_emails?: string[]; tin?: string; bir_cor_name?: string; peza_cert_name?: string };
   agents: { id: string; full_name: string }[];
   onDone: () => void;
   onCancel: () => void;
 }) {
   const [companyName, setCompanyName] = useState(client.company_name);
   const [contactName, setContactName] = useState(client.contact_name);
-  const [email, setEmail] = useState(client.email);
+  const [email, setEmail] = useState(client.email || "");
   const [phone, setPhone] = useState(client.phone || "");
   const [address, setAddress] = useState(client.address || "");
   const [agentId, setAgentId] = useState(client.agent_id || "");
@@ -266,7 +266,7 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
     }
   };
 
-  const valid = companyName.trim() && contactName.trim() && email.trim() && phone.trim() && address.trim() && tin.trim();
+  const valid = companyName.trim() && contactName.trim() && phone.trim() && address.trim() && tin.trim();
 
   return (
     <Card title="Edit client">
@@ -274,8 +274,8 @@ export function EditClientForm({ client, agents, onDone, onCancel }: {
       <input id="ecc" className="f" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
       <label className="f" htmlFor="ecn">Contact name</label>
       <input id="ecn" className="f" required value={contactName} onChange={(e) => setContactName(e.target.value)} />
-      <label className="f" htmlFor="ece">Email</label>
-      <input id="ece" className="f" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+      <label className="f" htmlFor="ece">Email (optional)</label>
+      <input id="ece" className="f" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <label className="f" htmlFor="ecxe">Additional emails (optional)</label>
       <textarea id="ecxe" className="f" rows={2} value={extraEmails} onChange={(e) => setExtraEmails(e.target.value)}
         placeholder="One per line or comma-separated — reminders and announcements go to all of them." />

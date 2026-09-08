@@ -40,7 +40,7 @@ export const tokenFor = (user: { id: string; role: string }) =>
 export const createClientRow = async (opts: {
   companyName?: string;
   contactName?: string;
-  email?: string;
+  email?: string | null;
   agentId?: string | null;
   tin?: string | null;
 } = {}) => {
@@ -49,7 +49,7 @@ export const createClientRow = async (opts: {
     [
       opts.companyName ?? "Test Co",
       opts.contactName ?? "Test Contact",
-      opts.email ?? `${uniq("client")}@example.com`,
+      opts.email === undefined ? `${uniq("client")}@example.com` : opts.email,
       opts.agentId ?? null,
       opts.tin ?? null,
     ]

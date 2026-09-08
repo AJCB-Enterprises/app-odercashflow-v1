@@ -16,6 +16,7 @@ export default function Dashboard() {
             <div className="stat"><div className="k">Due within {data.summary.due_soon_window_days} days</div><div className="v amber">{data.summary.due_soon_count}</div></div>
             <div className="stat"><div className="k">Outstanding total</div><div className="v">{peso(data.summary.outstanding_total)}</div></div>
             <div className="stat"><div className="k">Receipts to verify</div><div className="v green">{data.summary.receipts_to_verify}</div></div>
+            <div className="stat"><div className="k">Needs manual reminder</div><div className="v amber">{data.summary.no_email_count}</div></div>
           </div>
           <Card title="Open invoices" hint="soonest due first" pad={false}>
             <table className="ledger">
@@ -26,7 +27,10 @@ export default function Dashboard() {
                 {data.invoices.map((i: any) => (
                   <tr key={i.id}>
                     <td className="num strong">{i.invoice_no}</td>
-                    <td>{i.company_name}<div className="dim">{i.contact_name}</div></td>
+                    <td>
+                      {i.company_name}{!i.has_email && <span className="chip amber" style={{ marginLeft: 8 }}>No email</span>}
+                      <div className="dim">{i.contact_name}</div>
+                    </td>
                     <td className="num right">{peso(i.balance_due)}</td>
                     <td className="num">
                       {fmtDate(i.due_date)}

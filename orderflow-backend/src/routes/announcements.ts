@@ -33,15 +33,17 @@ announcementsRouter.post("/", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const { subject, body } = parsed.data;
 
-  const clients = await q<{ email: string; contact_name: string; extra_emails: string[] }>(
+  const clients = await q<{ email: string | null; contact_name: string; extra_emails: string[] }>(
     "SELECT email, contact_name, extra_emails FROM clients"
   );
   if (!clients.length) return res.status(400).json({ error: "No clients in the directory to send to" });
 
   let sent = 0;
   for (const c of clients) {
+    const recipients = clientEmails(c);
+    if (!recipients.length) continue; // no email on file — not counted as sent
     try {
-      await sendMail(clientEmails(c), subject, renderTemplate(body, { contact: c.contact_name }));
+      await sendMail(recipients, subject, renderTemplate(body, { contact: c.contact_name }));
       sent++;
     } catch (err: any) {
       console.error(`announcement failed for ${c.email}:`, err.message);
