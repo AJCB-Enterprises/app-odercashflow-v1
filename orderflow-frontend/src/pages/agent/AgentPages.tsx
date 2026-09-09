@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
 import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, PAYMENT_TERM_OPTIONS, useData, useToast, VAT_STATUS_OPTIONS } from "../../components";
 
@@ -160,6 +160,7 @@ export function AgentNewOrder() {
 /* ---- Orders by client ---- */
 export function AgentOrders() {
   const { data, error, loading } = useData<any[]>(() => api.get("/orders"), []);
+  const navigate = useNavigate();
   const byClient = useMemo(() => {
     const map = new Map<string, any[]>();
     (data || []).forEach((o) => {
@@ -181,7 +182,7 @@ export function AgentOrders() {
             <thead><tr><th>Order</th><th className="right">Total</th><th>Submitted</th><th>Status</th><th>Note</th></tr></thead>
             <tbody>
               {orders.map((o) => (
-                <tr key={o.id}>
+                <tr key={o.id} className="rowbtn" onClick={() => navigate(`/agent/orders/${o.id}`)}>
                   <td className="num strong">{o.order_no}</td>
                   <td className="num right">{peso(o.total)}</td>
                   <td className="num">{fmtDate(o.created_at)}</td>
@@ -193,6 +194,138 @@ export function AgentOrders() {
           </table>
         </Card>
       )) : <Card><div className="empty">No orders yet — create one from "New sales order".</div></Card>}
+    </>
+  );
+}
+
+/* ---- Order detail — revisable while still pending ---- */
+export function AgentOrderDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const { data, error, loading, reload } = useData<any>(() => api.get(`/orders/${id}`), [id]);
+
+  const [seeded, setSeeded] = useState(false);
+  const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
+  const [poDate, setPoDate] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!data || seeded) return;
+    setItems(
+      data.items.length
+        ? data.items.map((it: any) => ({ description: it.description, qty: String(it.qty), unit_price: String(it.unit_price) }))
+        : [{ description: "", qty: "1", unit_price: "" }]
+    );
+    setPoDate(data.order.po_date ? String(data.order.po_date).slice(0, 10) : "");
+    setPoNumber(data.order.po_number || "");
+    setSeeded(true);
+  }, [data, seeded]);
+
+  if (loading) return <Loading />;
+  if (error || !data) return <ErrorBox msg={error || "Order not found"} />;
+  const { order } = data;
+
+  const setItem = (i: number, k: string, v: string) =>
+    setItems((its) => its.map((it, j) => (j === i ? { ...it, [k]: v } : it)));
+  const clean = items
+    .filter((it) => it.description.trim() && Number(it.qty) > 0 && Number(it.unit_price) > 0)
+    .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
+  const total = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
+
+  const viewAttachment = async () => {
+    try {
+      await api.openBlob(`/orders/${id}/attachment`);
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("items", JSON.stringify(clean));
+      if (poDate) form.append("po_date", poDate);
+      if (poNumber.trim()) form.append("po_number", poNumber.trim());
+      if (file) form.append("file", file);
+      await api.patchForm(`/orders/${id}`, form);
+      toast(`${order.order_no} updated — admin has been notified to take another look.`);
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button className="back" onClick={() => navigate("/agent/orders")}>← Back to orders</button>
+      <h1 className="page">{order.order_no}</h1>
+      <p className="pagesub">{order.company_name} · submitted {fmtDate(order.created_at)}</p>
+      <div style={{ marginBottom: 16 }}><OrderChip status={order.status} /></div>
+
+      {order.status !== "pending" ? (
+        <Card title="Order details" pad={false}>
+          <table className="ledger">
+            <thead><tr><th>Item</th><th className="right">Qty</th><th className="right">Unit price</th><th className="right">Line total</th></tr></thead>
+            <tbody>
+              {data.items.map((it: any) => (
+                <tr key={it.id}>
+                  <td>{it.description}</td>
+                  <td className="num right">{Number(it.qty)}</td>
+                  <td className="num right">{peso(it.unit_price)}</td>
+                  <td className="num right">{peso(Number(it.qty) * Number(it.unit_price))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {order.status === "rejected" && order.reject_reason && (
+            <p className="dim" style={{ marginTop: 12, marginBottom: 0 }}>Rejected: {order.reject_reason}</p>
+          )}
+        </Card>
+      ) : (
+        <Card title="Revise order" hint="still pending review — saving notifies the admin to take another look">
+          <label className="f" htmlFor="epod">Purchase order date</label>
+          <input id="epod" className="f" type="date" style={{ maxWidth: 340 }} value={poDate} onChange={(e) => setPoDate(e.target.value)} />
+          <label className="f" htmlFor="epon">Purchase order number</label>
+          <input id="epon" className="f" style={{ maxWidth: 340 }} placeholder="Client's own PO reference, e.g. PO-1042"
+            value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+          <label className="f" htmlFor="epof">Replace PO attachment (optional)</label>
+          <input id="epof" className="f" type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ maxWidth: 340 }}
+            onChange={(e) => setFile(e.target.files?.[0] || null)} />
+          {order.attachment_name && !file && (
+            <p className="dim" style={{ marginTop: -8, marginBottom: 14, fontSize: 12.5 }}>
+              Current file: {order.attachment_name} — <button className="btn sm ghost" onClick={viewAttachment}>View</button>
+            </p>
+          )}
+          <label className="f">Line items</label>
+          {items.map((it, i) => (
+            <div className="itemrow" key={i}>
+              <input className="f" placeholder="Item description" value={it.description}
+                onChange={(e) => setItem(i, "description", e.target.value)} aria-label={`Item ${i + 1} description`} />
+              <input className="f num" type="number" min={1} placeholder="Qty" value={it.qty}
+                onChange={(e) => setItem(i, "qty", e.target.value)} aria-label={`Item ${i + 1} quantity`} />
+              <input className="f num" type="number" min={0} step="0.01" placeholder="Unit ₱" value={it.unit_price}
+                onChange={(e) => setItem(i, "unit_price", e.target.value)} aria-label={`Item ${i + 1} unit price`} />
+              <button className="btn sm ghost" disabled={items.length === 1} aria-label={`Remove item ${i + 1}`}
+                onClick={() => setItems((its) => its.filter((_, j) => j !== i))}>×</button>
+            </div>
+          ))}
+          <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>
+            + Add line
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 18 }}>
+            <span className="num strong" style={{ fontSize: 16 }}>Total {peso(total)}</span>
+            <button className="btn" disabled={!clean.length || busy} onClick={submit}>
+              {busy ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </Card>
+      )}
     </>
   );
 }

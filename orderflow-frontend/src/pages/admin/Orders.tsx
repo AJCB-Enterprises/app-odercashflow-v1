@@ -46,7 +46,10 @@ export function OrderDetail() {
   const [invoiceNo, setInvoiceNo] = useState("");
   const [drNo, setDrNo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reassignTo, setReassignTo] = useState("");
+  const [reassigning, setReassigning] = useState(false);
   const { data, error, loading, reload } = useData<any>(() => api.get(`/orders/${id}`), [id]);
+  const { data: clients } = useData<any[]>(() => api.get("/clients"), []);
 
   if (loading) return <Loading />;
   if (error || !data) return <ErrorBox msg={error || "Order not found"} />;
@@ -66,6 +69,21 @@ export function OrderDetail() {
       await api.openBlob(`/clients/${order.client_id}/documents/${type}`);
     } catch (e: any) {
       toast(e.message, true);
+    }
+  };
+
+  const reassignClient = async () => {
+    if (!reassignTo) return;
+    setReassigning(true);
+    try {
+      await api.post(`/orders/${id}/reassign-client`, { client_id: reassignTo });
+      toast(`${order.order_no} moved to the selected client.`);
+      setReassignTo("");
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setReassigning(false);
     }
   };
 
@@ -138,6 +156,27 @@ export function OrderDetail() {
               ? <><span>{order.peza_cert_name}</span>
                   <button className="btn sm ghost" onClick={() => viewClientDoc("peza_cert")}>View</button></>
               : <span className="dim">not uploaded</span>}
+          </div>
+        </Card>
+      )}
+
+      {order.status === "approved" && (
+        <Card title="Reassign client" hint="if this order was submitted under the wrong client">
+          <p className="dim" style={{ marginBottom: 12 }}>
+            Moves this order — and its invoice, if one exists — to the client you pick below. Payment terms
+            and VAT status stay as originally set; review them separately if the new client's are different.
+          </p>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <select className="f" style={{ maxWidth: 320, marginBottom: 0 }} value={reassignTo}
+              onChange={(e) => setReassignTo(e.target.value)}>
+              <option value="">Select the correct client…</option>
+              {(clients || []).filter((c) => c.id !== order.client_id).map((c) => (
+                <option key={c.id} value={c.id}>{c.company_name}</option>
+              ))}
+            </select>
+            <button className="btn sm" disabled={!reassignTo || reassigning} onClick={reassignClient}>
+              {reassigning ? "Moving…" : "Move order"}
+            </button>
           </div>
         </Card>
       )}

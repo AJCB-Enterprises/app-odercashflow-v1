@@ -65,6 +65,8 @@ export const api = {
   },
   /** Authenticated multipart POST — e.g. a new order with an optional PO attachment. */
   postForm: <T = any>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
+  /** Authenticated multipart PATCH — e.g. revising a pending order's items/attachment. */
+  patchForm: <T = any>(path: string, form: FormData) => request<T>(path, { method: "PATCH", body: form }),
   /** Fetch a protected binary (receipt file) and open it in a new tab. */
   openBlob: async (path: string) => {
     const res = await fetch(BASE + path, { headers: { Authorization: `Bearer ${getToken()}` } });

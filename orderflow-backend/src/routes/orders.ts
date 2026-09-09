@@ -94,8 +94,8 @@ ordersRouter.get("/:id", async (req, res) => {
   res.json({ order, items, pending_invoices: pendingInvoices });
 });
 
-const OrderBody = z.object({
-  client_id: z.string().uuid(),
+/** Shared by order creation and order revision — line items and the client's own PO reference. */
+const OrderItemsAndPo = {
   items: z
     .array(
       z.object({
@@ -105,14 +105,22 @@ const OrderBody = z.object({
       })
     )
     .min(1),
+  po_date: z.string().date().optional().or(z.literal("")),
+  po_number: z.string().optional(),
+};
+
+const OrderBody = z.object({
+  client_id: z.string().uuid(),
   // The same client can order under different terms order to order (e.g.
   // usually Net 30, sometimes COD) -- defaults to the client's own record
   // when omitted. VAT status has no such override: it's always the
   // client's own record, set by admin only.
   payment_terms: z.enum(["net_15", "net_30", "net_45", "cod"]).optional(),
-  po_date: z.string().date().optional().or(z.literal("")),
-  po_number: z.string().optional(),
+  ...OrderItemsAndPo,
 });
+
+/** Revising a still-pending order: items and PO reference only — not payment terms, not the client. */
+const OrderEditBody = z.object(OrderItemsAndPo);
 
 const PAYMENT_TERM_LABELS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", cod: "COD" };
 const VAT_STATUS_LABELS: Record<string, string> = { vat_exempt: "SO/ DR", vat_inclusive: "VAT-Inclusive", zero_rated: "Zero-Rated" };
@@ -187,6 +195,81 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimit
     return order;
   });
   res.status(201).json(created);
+});
+
+/**
+ * PATCH /orders/:id — the submitting agent (or admin) revises a still-pending
+ * order: line items and the client's own PO reference (number/date/attachment).
+ * Payment terms and the client itself aren't revisable here — once the order
+ * moves past pending, only admin's reassign-client action can still move it.
+ * Multipart, same shape as creation: "items" is a JSON string, "file" is
+ * optional and replaces any existing attachment (omit it to keep the current one).
+ */
+ordersRouter.patch("/:id", requireAgentPermission("can_create_po"), uploadAttachment.single("file"), async (req, res) => {
+  const user = req.user!;
+  let itemsInput: unknown;
+  try {
+    itemsInput = JSON.parse(String(req.body.items ?? "[]"));
+  } catch {
+    return res.status(400).json({ error: "Invalid items" });
+  }
+  const parsed = OrderEditBody.safeParse({ ...req.body, items: itemsInput });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  const { items, po_date, po_number } = parsed.data;
+
+  let attachment: { ext: string; mime: string } | null = null;
+  if (req.file) {
+    attachment = validateUpload(req.file);
+    if (!attachment) return res.status(400).json({ error: "PO attachment must be a JPG, PNG, or PDF" });
+  }
+
+  const existing = await one<{ id: string; order_no: string; status: string; agent_id: string; company_name: string }>(
+    `SELECT o.id, o.order_no, o.status, c.agent_id, c.company_name
+       FROM orders o JOIN clients c ON c.id = o.client_id
+      WHERE o.id = $1`,
+    [req.params.id]
+  );
+  if (!existing || (user.role === "agent" && existing.agent_id !== user.id))
+    return res.status(404).json({ error: "Order not found" });
+  if (existing.status !== "pending") return res.status(409).json({ error: "Only a pending order can be revised" });
+
+  const updated = await tx(async (c) => {
+    await c.query("DELETE FROM order_items WHERE order_id = $1", [existing.id]);
+    for (const it of items)
+      await c.query("INSERT INTO order_items (order_id, description, qty, unit_price) VALUES ($1,$2,$3,$4)", [
+        existing.id,
+        it.description,
+        it.qty,
+        it.unit_price,
+      ]);
+
+    await c.query("UPDATE orders SET po_date = $2, po_number = $3 WHERE id = $1", [
+      existing.id,
+      po_date || null,
+      po_number?.trim() || null,
+    ]);
+
+    if (req.file && attachment) {
+      const key = await saveOrderAttachment(existing.id, attachment.ext, req.file.buffer);
+      await c.query(
+        `UPDATE orders SET attachment_key = $2, attachment_name = $3, attachment_mime = $4, attachment_size_bytes = $5
+          WHERE id = $1`,
+        [existing.id, key, sanitizeFilename(req.file.originalname, `po.${attachment.ext}`), attachment.mime, req.file.size]
+      );
+    }
+
+    const orderRes = await c.query("SELECT * FROM orders WHERE id = $1", [existing.id]);
+
+    await notifyAdmins(
+      `${existing.order_no} for ${existing.company_name} was revised by ${user.full_name} — please re-review.`,
+      `/orders/${existing.id}`,
+      c
+    );
+    await audit(user.id, "order.revised", "order", existing.id, { order_no: existing.order_no }, c);
+    return orderRes.rows[0];
+  });
+
+  res.json(updated);
 });
 
 /** GET /orders/:id/attachment — streams the client's PO document, if one was uploaded. */
@@ -402,4 +485,81 @@ ordersRouter.post("/:id/reject", requireAdmin, async (req, res) => {
     await notifyUser(order.created_by, `${order.order_no} was rejected${reason ? ": " + reason : "."}`, `/orders/${order.id}`);
   await audit(user.id, "order.rejected", "order", order.id, { reason });
   res.json(order);
+});
+
+const ReassignBody = z.object({ client_id: z.string().uuid() });
+
+/**
+ * POST /orders/:id/reassign-client — admin corrects an approved order that
+ * was submitted under the wrong client, moving the order (and its invoice,
+ * if a direct 1:1 one exists) to the correct client record. Blocked once the
+ * order has been bundled into a consolidated invoice (invoice_orders) — that
+ * invoice's total was summed across multiple orders and may still correctly
+ * belong to others under the original client, so pulling one order out from
+ * under it isn't a clean move.
+ *
+ * payment_terms/vat_status are left untouched — they were copied onto the
+ * order at creation and, if an invoice already exists, its due_date/amount
+ * were already computed from them; silently re-deriving from the new client
+ * could desync an already-issued invoice.
+ */
+ordersRouter.post("/:id/reassign-client", requireAdmin, async (req, res) => {
+  const user = req.user!;
+  const parsed = ReassignBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  const newClientId = parsed.data.client_id;
+
+  let result: { order: any; invoice: any } | null;
+  try {
+    result = await tx(async (c) => {
+      const ordRes = await c.query(
+        "SELECT * FROM orders WHERE id = $1 AND status = 'approved' FOR UPDATE",
+        [req.params.id]
+      );
+      const order = ordRes.rows[0];
+      if (!order) return null;
+
+      const consolidatedRes = await c.query("SELECT 1 FROM invoice_orders WHERE order_id = $1", [order.id]);
+      if (consolidatedRes.rows.length) {
+        const err: any = new Error("This order is already part of a consolidated invoice and can't be reassigned");
+        err.code = "ALREADY_CONSOLIDATED";
+        throw err;
+      }
+
+      const client = await c.query("SELECT id, company_name FROM clients WHERE id = $1", [newClientId]);
+      if (!client.rows[0]) {
+        const err: any = new Error("Client not found");
+        err.code = "CLIENT_NOT_FOUND";
+        throw err;
+      }
+
+      const fromClientId = order.client_id;
+      const updOrderRes = await c.query(
+        "UPDATE orders SET client_id = $2 WHERE id = $1 RETURNING *",
+        [order.id, newClientId]
+      );
+
+      const updInvRes = await c.query(
+        "UPDATE invoices SET client_id = $2 WHERE order_id = $1 RETURNING *",
+        [order.id, newClientId]
+      );
+
+      await audit(
+        user.id,
+        "order.reassigned",
+        "order",
+        order.id,
+        { from_client_id: fromClientId, to_client_id: newClientId },
+        c
+      );
+      return { order: updOrderRes.rows[0], invoice: updInvRes.rows[0] ?? null };
+    });
+  } catch (err: any) {
+    if (err?.code === "ALREADY_CONSOLIDATED") return res.status(409).json({ error: err.message });
+    if (err?.code === "CLIENT_NOT_FOUND") return res.status(404).json({ error: err.message });
+    throw err;
+  }
+  if (!result) return res.status(409).json({ error: "Order not found or not approved" });
+
+  res.json(result);
 });
