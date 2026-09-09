@@ -16,12 +16,13 @@ export function OrderList() {
         {loading ? <Loading /> : (
           <table className="ledger">
             <thead>
-              <tr><th>Order</th><th>Client</th><th>Agent</th><th className="right">Total</th><th>Submitted</th><th>Status</th></tr>
+              <tr><th>Order</th><th>Invoice</th><th>Client</th><th>Agent</th><th className="right">Total</th><th>Submitted</th><th>Status</th></tr>
             </thead>
             <tbody>
               {(data || []).map((o) => (
                 <tr key={o.id} className="rowbtn" onClick={() => navigate(`/admin/orders/${o.id}`)}>
                   <td className="num strong">{o.order_no}</td>
+                  <td className="num">{o.invoice_no || <span className="dim">—</span>}</td>
                   <td>{o.company_name}</td>
                   <td>{o.agent_name || <span className="dim">—</span>}</td>
                   <td className="num right">{peso(o.total)}</td>
@@ -29,7 +30,7 @@ export function OrderList() {
                   <td><OrderChip status={o.status} /></td>
                 </tr>
               ))}
-              {!data?.length && <tr><td colSpan={6} className="empty">No orders yet.</td></tr>}
+              {!data?.length && <tr><td colSpan={7} className="empty">No orders yet.</td></tr>}
             </tbody>
           </table>
         )}
@@ -48,6 +49,9 @@ export function OrderDetail() {
   const [busy, setBusy] = useState(false);
   const [reassignTo, setReassignTo] = useState("");
   const [reassigning, setReassigning] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const [voiding, setVoiding] = useState(false);
+  const [itemBusy, setItemBusy] = useState(false);
   const { data, error, loading, reload } = useData<any>(() => api.get(`/orders/${id}`), [id]);
   const { data: clients } = useData<any[]>(() => api.get("/clients"), []);
 
@@ -84,6 +88,42 @@ export function OrderDetail() {
       toast(e.message, true);
     } finally {
       setReassigning(false);
+    }
+  };
+
+  const voidOrder = async () => {
+    if (!window.confirm(`Void ${order.order_no}? This can't be undone.`)) return;
+    setVoiding(true);
+    try {
+      const res = await api.post(`/orders/${id}/void`, { reason: voidReason.trim() || undefined });
+      toast(`${order.order_no} voided${res.invoice ? ` — invoice ${res.invoice.invoice_no} marked void` : ""}.`);
+      setVoidReason("");
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setVoiding(false);
+    }
+  };
+
+  const cancelItem = async (index: number) => {
+    if (!window.confirm(`Remove "${items[index].description}" from this order?`)) return;
+    setItemBusy(true);
+    try {
+      const remaining = items
+        .filter((_: any, i: number) => i !== index)
+        .map((it: any) => ({ description: it.description, qty: Number(it.qty), unit_price: Number(it.unit_price) }));
+      const form = new FormData();
+      form.append("items", JSON.stringify(remaining));
+      if (order.po_date) form.append("po_date", String(order.po_date).slice(0, 10));
+      if (order.po_number) form.append("po_number", order.po_number);
+      await api.patchForm(`/orders/${id}`, form);
+      toast("Item removed from the order.");
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setItemBusy(false);
     }
   };
 
@@ -181,19 +221,47 @@ export function OrderDetail() {
         </Card>
       )}
 
+      {order.status === "approved" && (
+        <Card title="Void order" hint="when an assigned pre-numbered SI needs to be cancelled">
+          <p className="dim" style={{ marginBottom: 12 }}>
+            Marks this order cancelled and its invoice void. Only allowed while the invoice is unpaid
+            with no payment activity on file at all — if a receipt or payment already exists, resolve
+            that first.
+          </p>
+          <label className="f" htmlFor="voidr">Reason (optional)</label>
+          <textarea id="voidr" className="f" rows={2} style={{ maxWidth: 460 }} value={voidReason}
+            onChange={(e) => setVoidReason(e.target.value)} placeholder="e.g. Client cancelled the order." />
+          <button className="btn sm red" disabled={voiding} onClick={voidOrder}>
+            {voiding ? "Voiding…" : "Void order"}
+          </button>
+        </Card>
+      )}
+
       <Card title="Order details" pad={false}>
         <table className="ledger">
-          <thead><tr><th>Item</th><th className="right">Qty</th><th className="right">Unit price</th><th className="right">Line total</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Item</th><th className="right">Qty</th><th className="right">Unit price</th><th className="right">Line total</th>
+              {order.status === "pending" && <th />}
+            </tr>
+          </thead>
           <tbody>
-            {items.map((it: any) => (
+            {items.map((it: any, i: number) => (
               <tr key={it.id}>
                 <td>{it.description}</td>
                 <td className="num right">{Number(it.qty)}</td>
                 <td className="num right">{peso(it.unit_price)}</td>
                 <td className="num right">{peso(Number(it.qty) * Number(it.unit_price))}</td>
+                {order.status === "pending" && (
+                  <td className="right">
+                    <button className="btn sm ghost" disabled={itemBusy || items.length <= 1}
+                      title={items.length <= 1 ? "An order needs at least one item — reject it instead" : "Remove this item"}
+                      onClick={() => cancelItem(i)}>Cancel item</button>
+                  </td>
+                )}
               </tr>
             ))}
-            <tr><td className="strong">Total</td><td /><td /><td className="num right strong">{peso(total)}</td></tr>
+            <tr><td className="strong">Total</td><td /><td /><td className="num right strong">{peso(total)}</td>{order.status === "pending" && <td />}</tr>
           </tbody>
         </table>
       </Card>

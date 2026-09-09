@@ -45,13 +45,20 @@ ordersRouter.get("/", async (req, res) => {
     `SELECT o.id, o.order_no, o.status, o.reject_reason, o.created_at,
             c.id AS client_id, c.company_name,
             u.full_name AS agent_name,
-            coalesce(sum(oi.qty * oi.unit_price), 0) AS total
+            coalesce(sum(oi.qty * oi.unit_price), 0) AS total,
+            inv.invoice_no
        FROM orders o
        JOIN clients c ON c.id = o.client_id
        LEFT JOIN users u ON u.id = o.created_by
        LEFT JOIN order_items oi ON oi.order_id = o.id
+       LEFT JOIN LATERAL (
+         SELECT invoice_no FROM invoices WHERE order_id = o.id
+         UNION ALL
+         SELECT iv.invoice_no FROM invoice_orders io JOIN invoices iv ON iv.id = io.invoice_id WHERE io.order_id = o.id
+         LIMIT 1
+       ) inv ON TRUE
        ${where}${scope.sql}
-      GROUP BY o.id, c.id, u.full_name
+      GROUP BY o.id, c.id, u.full_name, inv.invoice_no
       ORDER BY (o.status = 'pending') DESC, o.created_at DESC`,
     params
   );
@@ -557,6 +564,86 @@ ordersRouter.post("/:id/reassign-client", requireAdmin, async (req, res) => {
   } catch (err: any) {
     if (err?.code === "ALREADY_CONSOLIDATED") return res.status(409).json({ error: err.message });
     if (err?.code === "CLIENT_NOT_FOUND") return res.status(404).json({ error: err.message });
+    throw err;
+  }
+  if (!result) return res.status(409).json({ error: "Order not found or not approved" });
+
+  res.json(result);
+});
+
+const VoidBody = z.object({ reason: z.string().optional() });
+
+/**
+ * POST /orders/:id/void — admin cancels an approved order, e.g. when its
+ * assigned pre-numbered Sales Invoice needs to be voided. Marks the order
+ * 'cancelled' and, if a direct 1:1 invoice exists, marks it 'void' too — SI
+ * books are official pre-numbered documents, so the number is never deleted
+ * or reused, only marked void. Only allowed while the invoice is still
+ * unpaid with no payment activity on file at all (even a short/partial
+ * payment blocks it, even though that alone wouldn't flip the status away
+ * from 'unpaid') — admin must resolve that separately first. Also blocked
+ * once the order is part of a consolidated invoice, same as reassign-client.
+ */
+ordersRouter.post("/:id/void", requireAdmin, async (req, res) => {
+  const user = req.user!;
+  const parsed = VoidBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  const reason = parsed.data.reason?.trim() || null;
+
+  let result: { order: any; invoice: any } | null;
+  try {
+    result = await tx(async (c) => {
+      const ordRes = await c.query(
+        "SELECT * FROM orders WHERE id = $1 AND status = 'approved' FOR UPDATE",
+        [req.params.id]
+      );
+      const order = ordRes.rows[0];
+      if (!order) return null;
+
+      const consolidatedRes = await c.query("SELECT 1 FROM invoice_orders WHERE order_id = $1", [order.id]);
+      if (consolidatedRes.rows.length) {
+        const err: any = new Error("This order is part of a consolidated invoice and can't be voided on its own");
+        err.code = "ALREADY_CONSOLIDATED";
+        throw err;
+      }
+
+      const invRes = await c.query(
+        `SELECT iv.id, iv.status, iv.invoice_no,
+                EXISTS(SELECT 1 FROM invoice_payments WHERE invoice_id = iv.id) AS has_payment
+           FROM invoices iv WHERE iv.order_id = $1 FOR UPDATE`,
+        [order.id]
+      );
+      const invoice = invRes.rows[0];
+      if (invoice && (invoice.status !== "unpaid" || invoice.has_payment)) {
+        const err: any = new Error(`Invoice ${invoice.invoice_no} already has payment activity and can't be voided`);
+        err.code = "HAS_PAYMENT";
+        throw err;
+      }
+
+      const updOrderRes = await c.query(
+        "UPDATE orders SET status = 'cancelled' WHERE id = $1 RETURNING *",
+        [order.id]
+      );
+
+      let voidedInvoice = null;
+      if (invoice) {
+        const updInvRes = await c.query("UPDATE invoices SET status = 'void' WHERE id = $1 RETURNING *", [invoice.id]);
+        voidedInvoice = updInvRes.rows[0];
+      }
+
+      if (order.created_by)
+        await notifyUser(
+          order.created_by,
+          `${order.order_no} was voided${invoice ? ` (invoice ${invoice.invoice_no})` : ""}${reason ? ": " + reason : "."}`,
+          `/orders/${order.id}`,
+          c
+        );
+      await audit(user.id, "order.voided", "order", order.id, { reason, invoice_no: invoice?.invoice_no }, c);
+      return { order: updOrderRes.rows[0], invoice: voidedInvoice };
+    });
+  } catch (err: any) {
+    if (err?.code === "ALREADY_CONSOLIDATED") return res.status(409).json({ error: err.message });
+    if (err?.code === "HAS_PAYMENT") return res.status(409).json({ error: err.message });
     throw err;
   }
   if (!result) return res.status(409).json({ error: "Order not found or not approved" });
