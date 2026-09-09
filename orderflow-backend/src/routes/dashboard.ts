@@ -1,20 +1,26 @@
 import { Router } from "express";
 import { one, q } from "../db";
-import { requireAdmin, requireAuth } from "../middleware/auth";
+import { clientScopeSql, requireAuth } from "../middleware/auth";
 
 export const dashboardRouter = Router();
-dashboardRouter.use(requireAuth, requireAdmin);
+dashboardRouter.use(requireAuth);
 
 /**
  * GET /dashboard/payments-due
  * Customers with payments coming due or already overdue. "Overdue" is derived
- * from due_date, never stored.
+ * from due_date, never stored. Admin sees every client; an agent sees only
+ * their own assigned clients (same scoping as orders/clients/invoices).
  */
-dashboardRouter.get("/payments-due", async (_req, res) => {
+dashboardRouter.get("/payments-due", async (req, res) => {
+  const user = req.user!;
   const settings = await one<{ days_before: number }>(
     "SELECT days_before FROM reminder_settings WHERE type = 'payment'"
   );
   const daysBefore = settings?.days_before ?? 3;
+
+  const params: any[] = [];
+  const scope = clientScopeSql(user, "c", params.length + 1);
+  if (scope.param) params.push(scope.param);
 
   const rows = await q(
     `SELECT i.id, i.invoice_no, i.amount, i.due_date, i.status,
@@ -25,8 +31,9 @@ dashboardRouter.get("/payments-due", async (_req, res) => {
             (c.email IS NOT NULL OR cardinality(c.extra_emails) > 0) AS has_email
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
-      WHERE i.status IN ('unpaid', 'receipt_uploaded')
+      WHERE i.status IN ('unpaid', 'receipt_uploaded')${scope.sql}
       ORDER BY i.due_date ASC`,
+    params
   );
 
   const overdue = rows.filter((r: any) => r.is_overdue);

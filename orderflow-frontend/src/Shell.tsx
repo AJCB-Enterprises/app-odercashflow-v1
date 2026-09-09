@@ -55,6 +55,7 @@ export default function Shell() {
           ) : (
             <>
               <div className="navlabel">Agent · {user.full_name}</div>
+              <NavItem to="/agent/dashboard" label="Payment-due dashboard" />
               <NavItem to="/agent/clients" label="My assigned clients" />
               <NavItem to="/agent/new-order" label="New sales order" />
               <NavItem to="/agent/orders" label="Orders by client" />

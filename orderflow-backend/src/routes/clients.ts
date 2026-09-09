@@ -116,6 +116,36 @@ clientsRouter.get("/:id", async (req, res) => {
   });
 });
 
+/**
+ * GET /clients/:id/last-order — the client's most recently submitted order's
+ * line items, so the New Sales Order form can pre-fill them for a repeat
+ * customer instead of the agent re-typing the same items every time. Any
+ * status counts (even rejected) — the agent reviews and edits before
+ * resubmitting either way. Returns null if the client has no prior orders.
+ */
+clientsRouter.get("/:id/last-order", async (req, res) => {
+  const user = req.user!;
+  const params: any[] = [req.params.id];
+  const scope = clientScopeSql(user, "c", 2);
+  if (scope.param) params.push(scope.param);
+
+  const order = await one<{ id: string; order_no: string; created_at: string }>(
+    `SELECT o.id, o.order_no, o.created_at
+       FROM orders o JOIN clients c ON c.id = o.client_id
+      WHERE o.client_id = $1${scope.sql}
+      ORDER BY o.created_at DESC
+      LIMIT 1`,
+    params
+  );
+  if (!order) return res.json(null);
+
+  const items = await q(
+    "SELECT description, qty, unit_price FROM order_items WHERE order_id = $1 ORDER BY description",
+    [order.id]
+  );
+  res.json({ order_no: order.order_no, created_at: order.created_at, items });
+});
+
 const ClientBody = z.object({
   company_name: z.string().min(1),
   contact_name: z.string().min(1),

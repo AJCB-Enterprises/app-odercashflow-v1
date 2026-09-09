@@ -53,6 +53,7 @@ export function AgentNewOrder() {
   const [poNumber, setPoNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lastOrderInfo, setLastOrderInfo] = useState<{ order_no: string; created_at: string } | null>(null);
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -70,6 +71,27 @@ export function AgentNewOrder() {
   // can't; that's fixed on the client's own record.
   useEffect(() => {
     if (chosenClient) setPaymentTerms(chosenClient.payment_terms);
+  }, [chosenClient?.id]);
+
+  // Repeat customers tend to order roughly the same things — pre-fill the
+  // line items from their most recent order so the agent isn't re-typing
+  // every item every time; they can still edit/add/remove before submitting.
+  useEffect(() => {
+    if (!chosenClient) return;
+    let cancelled = false;
+    api.get<{ order_no: string; created_at: string; items: { description: string; qty: number; unit_price: number }[] } | null>(
+      `/clients/${chosenClient.id}/last-order`
+    ).then((last) => {
+      if (cancelled) return;
+      if (last && last.items.length) {
+        setItems(last.items.map((it) => ({ description: it.description, qty: String(it.qty), unit_price: String(it.unit_price) })));
+        setLastOrderInfo({ order_no: last.order_no, created_at: last.created_at });
+      } else {
+        setItems([{ description: "", qty: "1", unit_price: "" }]);
+        setLastOrderInfo(null);
+      }
+    }).catch(() => setLastOrderInfo(null));
+    return () => { cancelled = true; };
   }, [chosenClient?.id]);
 
   const submit = async () => {
@@ -130,6 +152,11 @@ export function AgentNewOrder() {
           <input id="pof" className="f" type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ maxWidth: 340 }}
             onChange={(e) => setFile(e.target.files?.[0] || null)} />
           <label className="f">Line items</label>
+          {lastOrderInfo && (
+            <p className="dim" style={{ marginTop: -6, marginBottom: 10, fontSize: 12.5 }}>
+              Pre-filled from {lastOrderInfo.order_no} ({fmtDate(lastOrderInfo.created_at)}) — review before submitting.
+            </p>
+          )}
           {items.map((it, i) => (
             <div className="itemrow" key={i}>
               <input className="f" placeholder="Item description" value={it.description}

@@ -23,7 +23,7 @@ import { AgentClients, AgentNewOrder, AgentOrders, AgentOrderDetail, AgentInvoic
 const Home = () => {
   const user = getUser();
   if (!user) return <Navigate to="/login" replace />;
-  return <Navigate to={user.role === "admin" ? "/admin/dashboard" : "/agent/clients"} replace />;
+  return <Navigate to={user.role === "admin" ? "/admin/dashboard" : "/agent/dashboard"} replace />;
 };
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -41,6 +41,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/account" element={<Account />} />
             <Route path="/admin/dashboard" element={<Dashboard />} />
+            <Route path="/agent/dashboard" element={<Dashboard />} />
             <Route path="/admin/orders" element={<OrderList />} />
             <Route path="/admin/orders/:id" element={<OrderDetail />} />
             <Route path="/admin/receipts" element={<Receipts />} />
