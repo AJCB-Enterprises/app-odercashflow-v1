@@ -9,6 +9,7 @@ export default function Receipts() {
   const [recording, setRecording] = useState<string | null>(null);
   const [amountReceived, setAmountReceived] = useState("");
   const [ewtAmount, setEwtAmount] = useState("");
+  const [discountAmount, setDiscountAmount] = useState("");
   const [busy, setBusy] = useState(false);
 
   const view = async (invoiceId: string) => {
@@ -31,6 +32,7 @@ export default function Receipts() {
     setRecording(i.id);
     setAmountReceived(String(i.balance_due));
     setEwtAmount("0");
+    setDiscountAmount("0");
   };
 
   const confirmPayment = async (invoiceId: string, invoiceNo: string) => {
@@ -39,6 +41,7 @@ export default function Receipts() {
       const res = await api.post<{ fully_paid: boolean; balance_due: number }>(`/invoices/${invoiceId}/payments`, {
         amount_received: Number(amountReceived) || 0,
         ewt_amount: Number(ewtAmount) || 0,
+        discount_amount: Number(discountAmount) || 0,
       });
       toast(
         res.fully_paid
@@ -60,9 +63,9 @@ export default function Receipts() {
       <p className="pagesub">
         Record payments as they come in — verify a client's uploaded receipt against your bank records,
         or record one collected in person (check payment, cash, etc). Enter what actually came in —
-        including any BIR EWT withheld, per the client's Form 2307. An invoice only closes out once the
-        balance reaches zero; a short payment stays open for the remainder and keeps sending reminders
-        automatically.
+        including any BIR EWT withheld (per the client's Form 2307) and any discount granted at
+        settlement. An invoice only closes out once the balance reaches zero; a short payment stays open
+        for the remainder and keeps sending reminders automatically.
       </p>
       {error && <ErrorBox msg={error} />}
       <Card pad={false}>
@@ -101,6 +104,9 @@ export default function Receipts() {
                         <input className="f num" style={{ width: 90 }} type="number" min={0} step="0.01"
                           placeholder="EWT" value={ewtAmount}
                           onChange={(e) => setEwtAmount(e.target.value)} />
+                        <input className="f num" style={{ width: 90 }} type="number" min={0} step="0.01"
+                          placeholder="Discount" value={discountAmount}
+                          onChange={(e) => setDiscountAmount(e.target.value)} />
                         <button className="btn sm green" disabled={busy} onClick={() => confirmPayment(i.id, i.invoice_no)}>
                           {busy ? "Saving…" : "Confirm"}
                         </button>

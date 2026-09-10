@@ -55,7 +55,7 @@ export const resolveUploadToken = async (
   if (!raw || raw.length > 128) return undefined;
   const row = await one<TokenInvoice>(
     `SELECT t.id AS token_id, i.id AS invoice_id, i.invoice_no, i.amount, i.due_date, i.status,
-            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS balance_due,
+            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS balance_due,
             c.company_name, c.contact_name, i.ewt_name
        FROM upload_tokens t
        JOIN invoices i ON i.id = t.invoice_id

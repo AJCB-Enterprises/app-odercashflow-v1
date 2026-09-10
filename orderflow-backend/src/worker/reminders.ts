@@ -202,7 +202,7 @@ export const sendStatementOfAccount = async (invoices: DueInvoice[]): Promise<vo
 const runPaymentReminders = async (s: Settings): Promise<number> => {
   const due = await q<DueInvoice>(
     `SELECT i.id, i.invoice_no,
-            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
+            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
             i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
             c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails, c.collects_in_person
@@ -249,7 +249,7 @@ export const sendImmediateReminderForClient = async (clientId: string): Promise<
 
   const due = await q<DueInvoice & { order_id: string | null; order_no: string | null }>(
     `SELECT i.id, i.invoice_no,
-            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
+            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
             i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
             c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails, c.collects_in_person,
@@ -298,7 +298,7 @@ export const resendReminderForInvoice = async (invoiceId: string): Promise<{ man
 
   const inv = await one<DueInvoice>(
     `SELECT i.id, i.invoice_no,
-            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
+            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS amount,
             i.due_date,
             (i.due_date < CURRENT_DATE) AS is_overdue,
             c.id AS client_id, c.contact_name, c.company_name, c.email, c.extra_emails, c.collects_in_person

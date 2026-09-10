@@ -66,10 +66,11 @@ export const createOrder = async (opts: {
   orderNo?: string;
   status?: "pending" | "approved" | "rejected" | "cancelled";
   items?: { description: string; qty: number; unit_price: number }[];
+  discountAmount?: number;
 }) => {
   const { rows } = await pool.query(
-    `INSERT INTO orders (order_no, client_id, status) VALUES ($1, $2, $3) RETURNING *`,
-    [opts.orderNo ?? uniq("SO"), opts.clientId, opts.status ?? "pending"]
+    `INSERT INTO orders (order_no, client_id, status, discount_amount) VALUES ($1, $2, $3, $4) RETURNING *`,
+    [opts.orderNo ?? uniq("SO"), opts.clientId, opts.status ?? "pending", opts.discountAmount ?? 0]
   );
   const order = rows[0];
   for (const it of opts.items ?? [])

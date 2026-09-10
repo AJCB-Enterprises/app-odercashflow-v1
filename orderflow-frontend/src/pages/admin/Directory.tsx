@@ -297,6 +297,9 @@ export function ClientDetail() {
                   {Number(i.total_ewt) > 0 && (
                     <div className="dim" style={{ fontSize: 12.5 }}>Includes {peso(i.total_ewt)} EWT</div>
                   )}
+                  {Number(i.total_discount) > 0 && (
+                    <div className="dim" style={{ fontSize: 12.5 }}>Includes {peso(i.total_discount)} discount</div>
+                  )}
                   {i.ewt_name && (
                     <div className="dim" style={{ fontSize: 12.5 }}>2307 on file</div>
                   )}

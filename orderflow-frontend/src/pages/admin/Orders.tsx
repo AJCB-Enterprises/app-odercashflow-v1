@@ -58,7 +58,9 @@ export function OrderDetail() {
   if (loading) return <Loading />;
   if (error || !data) return <ErrorBox msg={error || "Order not found"} />;
   const { order, items, pending_invoices } = data;
-  const total = items.reduce((s: number, it: any) => s + Number(it.qty) * Number(it.unit_price), 0);
+  const subtotal = items.reduce((s: number, it: any) => s + Number(it.qty) * Number(it.unit_price), 0);
+  const discountAmount = Number(order.discount_amount) || 0;
+  const total = Math.max(0, subtotal - discountAmount);
 
   const viewAttachment = async (orderId: string) => {
     try {
@@ -261,6 +263,12 @@ export function OrderDetail() {
                 )}
               </tr>
             ))}
+            {discountAmount > 0 && (
+              <tr>
+                <td className="dim">Discount</td><td /><td />
+                <td className="num right dim">−{peso(discountAmount)}</td>{order.status === "pending" && <td />}
+              </tr>
+            )}
             <tr><td className="strong">Total</td><td /><td /><td className="num right strong">{peso(total)}</td>{order.status === "pending" && <td />}</tr>
           </tbody>
         </table>

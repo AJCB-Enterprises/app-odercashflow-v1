@@ -48,6 +48,7 @@ export function AgentNewOrder() {
   const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
+  const [discount, setDiscount] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("net_30");
   const [poDate, setPoDate] = useState("");
   const [poNumber, setPoNumber] = useState("");
@@ -62,7 +63,10 @@ export function AgentNewOrder() {
   const clean = items
     .filter((it) => it.description.trim() && Number(it.qty) > 0 && Number(it.unit_price) > 0)
     .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
-  const total = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  const subtotal = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  const discountAmount = Number(discount) || 0;
+  const discountTooHigh = discountAmount > subtotal;
+  const total = Math.max(0, subtotal - discountAmount);
   const chosen = clientId || clients?.[0]?.id || "";
   const chosenClient = (clients || []).find((c) => c.id === chosen);
 
@@ -90,6 +94,7 @@ export function AgentNewOrder() {
         setItems([{ description: "", qty: "1", unit_price: "" }]);
         setLastOrderInfo(null);
       }
+      setDiscount("");
     }).catch(() => setLastOrderInfo(null));
     return () => { cancelled = true; };
   }, [chosenClient?.id]);
@@ -100,6 +105,7 @@ export function AgentNewOrder() {
       const form = new FormData();
       form.append("client_id", chosen);
       form.append("items", JSON.stringify(clean));
+      if (discountAmount > 0) form.append("discount_amount", String(discountAmount));
       form.append("payment_terms", paymentTerms);
       if (poDate) form.append("po_date", poDate);
       if (poNumber.trim()) form.append("po_number", poNumber.trim());
@@ -170,11 +176,27 @@ export function AgentNewOrder() {
           <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>
             + Add line
           </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 18 }}>
-            <span className="num strong" style={{ fontSize: 16 }}>Total {peso(total)}</span>
-            <button className="btn" disabled={!chosen || !clean.length || busy} onClick={submit}>
-              {busy ? "Submitting…" : "Submit for review"}
-            </button>
+          <label className="f" htmlFor="disc" style={{ marginTop: 14 }}>Discount (optional)</label>
+          <input id="disc" className="f num" type="number" min={0} step="0.01" placeholder="0.00"
+            style={{ maxWidth: 160 }} value={discount} onChange={(e) => setDiscount(e.target.value)} />
+          {discountTooHigh && (
+            <p style={{ marginTop: -6, marginBottom: 10, fontSize: 12.5, color: "var(--red)" }}>
+              Discount can't exceed the subtotal ({peso(subtotal)}).
+            </p>
+          )}
+          <div style={{ marginTop: 18 }}>
+            {discountAmount > 0 && (
+              <div className="dim" style={{ marginBottom: 4 }}>
+                <span>Subtotal {peso(subtotal)}</span>
+                <span style={{ marginLeft: 16 }}>Discount −{peso(discountAmount)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <span className="num strong" style={{ fontSize: 16 }}>Total {peso(total)}</span>
+              <button className="btn" disabled={!chosen || !clean.length || discountTooHigh || busy} onClick={submit}>
+                {busy ? "Submitting…" : "Submit for review"}
+              </button>
+            </div>
           </div>
         </Card>
       )}
@@ -232,6 +254,7 @@ export function AgentOrderDetail() {
 
   const [seeded, setSeeded] = useState(false);
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
+  const [discount, setDiscount] = useState("");
   const [poDate, setPoDate] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -244,6 +267,7 @@ export function AgentOrderDetail() {
         ? data.items.map((it: any) => ({ description: it.description, qty: String(it.qty), unit_price: String(it.unit_price) }))
         : [{ description: "", qty: "1", unit_price: "" }]
     );
+    setDiscount(Number(data.order.discount_amount) > 0 ? String(Number(data.order.discount_amount)) : "");
     setPoDate(data.order.po_date ? String(data.order.po_date).slice(0, 10) : "");
     setPoNumber(data.order.po_number || "");
     setSeeded(true);
@@ -258,7 +282,10 @@ export function AgentOrderDetail() {
   const clean = items
     .filter((it) => it.description.trim() && Number(it.qty) > 0 && Number(it.unit_price) > 0)
     .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
-  const total = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  const subtotal = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  const discountAmount = Number(discount) || 0;
+  const discountTooHigh = discountAmount > subtotal;
+  const total = Math.max(0, subtotal - discountAmount);
 
   const viewAttachment = async () => {
     try {
@@ -273,6 +300,7 @@ export function AgentOrderDetail() {
     try {
       const form = new FormData();
       form.append("items", JSON.stringify(clean));
+      form.append("discount_amount", String(discountAmount));
       if (poDate) form.append("po_date", poDate);
       if (poNumber.trim()) form.append("po_number", poNumber.trim());
       if (file) form.append("file", file);
@@ -306,6 +334,16 @@ export function AgentOrderDetail() {
                   <td className="num right">{peso(Number(it.qty) * Number(it.unit_price))}</td>
                 </tr>
               ))}
+              {Number(order.discount_amount) > 0 && (
+                <tr>
+                  <td className="dim">Discount</td><td /><td />
+                  <td className="num right dim">−{peso(order.discount_amount)}</td>
+                </tr>
+              )}
+              <tr>
+                <td className="strong">Total</td><td /><td />
+                <td className="num right strong">{peso(Math.max(0, subtotal - Number(order.discount_amount)))}</td>
+              </tr>
             </tbody>
           </table>
           {order.status === "rejected" && order.reject_reason && (
@@ -343,11 +381,27 @@ export function AgentOrderDetail() {
           <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>
             + Add line
           </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 18 }}>
-            <span className="num strong" style={{ fontSize: 16 }}>Total {peso(total)}</span>
-            <button className="btn" disabled={!clean.length || busy} onClick={submit}>
-              {busy ? "Saving…" : "Save changes"}
-            </button>
+          <label className="f" htmlFor="edisc" style={{ marginTop: 14 }}>Discount (optional)</label>
+          <input id="edisc" className="f num" type="number" min={0} step="0.01" placeholder="0.00"
+            style={{ maxWidth: 160 }} value={discount} onChange={(e) => setDiscount(e.target.value)} />
+          {discountTooHigh && (
+            <p style={{ marginTop: -6, marginBottom: 10, fontSize: 12.5, color: "var(--red)" }}>
+              Discount can't exceed the subtotal ({peso(subtotal)}).
+            </p>
+          )}
+          <div style={{ marginTop: 18 }}>
+            {discountAmount > 0 && (
+              <div className="dim" style={{ marginBottom: 4 }}>
+                <span>Subtotal {peso(subtotal)}</span>
+                <span style={{ marginLeft: 16 }}>Discount −{peso(discountAmount)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <span className="num strong" style={{ fontSize: 16 }}>Total {peso(total)}</span>
+              <button className="btn" disabled={!clean.length || discountTooHigh || busy} onClick={submit}>
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            </div>
           </div>
         </Card>
       )}
@@ -392,6 +446,9 @@ export function AgentInvoices() {
                     )}
                     {Number(i.total_ewt) > 0 && (
                       <div className="dim" style={{ fontSize: 12.5 }}>Includes {peso(i.total_ewt)} EWT</div>
+                    )}
+                    {Number(i.total_discount) > 0 && (
+                      <div className="dim" style={{ fontSize: 12.5 }}>Includes {peso(i.total_discount)} discount</div>
                     )}
                     {i.ewt_name && (
                       <div className="dim" style={{ fontSize: 12.5 }}>2307 on file</div>

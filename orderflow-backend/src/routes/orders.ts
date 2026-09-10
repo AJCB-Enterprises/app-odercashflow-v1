@@ -45,7 +45,8 @@ ordersRouter.get("/", async (req, res) => {
     `SELECT o.id, o.order_no, o.status, o.reject_reason, o.created_at,
             c.id AS client_id, c.company_name,
             u.full_name AS agent_name,
-            coalesce(sum(oi.qty * oi.unit_price), 0) AS total,
+            greatest(0, coalesce(sum(oi.qty * oi.unit_price), 0) - o.discount_amount) AS total,
+            o.discount_amount,
             inv.invoice_no
        FROM orders o
        JOIN clients c ON c.id = o.client_id
@@ -101,7 +102,7 @@ ordersRouter.get("/:id", async (req, res) => {
   res.json({ order, items, pending_invoices: pendingInvoices });
 });
 
-/** Shared by order creation and order revision — line items and the client's own PO reference. */
+/** Shared by order creation and order revision — line items, discount, and the client's own PO reference. */
 const OrderItemsAndPo = {
   items: z
     .array(
@@ -112,9 +113,19 @@ const OrderItemsAndPo = {
       })
     )
     .min(1),
+  // A flat peso discount off the item subtotal (e.g. bulk/loyalty discount
+  // agreed with the client), applied at approval time to the invoice amount.
+  // Validated against the item subtotal below, since it isn't itself a
+  // reliable upper bound in a zod schema (items are in the same payload).
+  // Multipart fields arrive as strings — coerce, same as how the rest of
+  // this endpoint handles non-string values riding alongside "items".
+  discount_amount: z.coerce.number().min(0).optional(),
   po_date: z.string().date().optional().or(z.literal("")),
   po_number: z.string().optional(),
 };
+
+const itemsSubtotal = (items: { qty: number; unit_price: number }[]) =>
+  items.reduce((s, it) => s + it.qty * it.unit_price, 0);
 
 const OrderBody = z.object({
   client_id: z.string().uuid(),
@@ -149,6 +160,9 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimit
   const parsed = OrderBody.safeParse({ ...req.body, items: itemsInput });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const { client_id, items, payment_terms, po_date, po_number } = parsed.data;
+  const discountAmount = parsed.data.discount_amount ?? 0;
+  if (discountAmount > itemsSubtotal(items))
+    return res.status(400).json({ error: "Discount can't exceed the order subtotal" });
 
   let attachment: { ext: string; mime: string } | null = null;
   if (req.file) {
@@ -167,11 +181,11 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimit
   const created = await tx(async (c) => {
     const orderNo = await nextDocNo(c, "SO");
     const orderRes = await c.query(
-      `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status, po_date, po_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status, po_date, po_number, discount_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
       [
         orderNo, client_id, user.id, payment_terms ?? clientRow.payment_terms, clientRow.vat_status,
-        po_date || null, po_number?.trim() || null,
+        po_date || null, po_number?.trim() || null, discountAmount,
       ]
     );
     let order = orderRes.rows[0];
@@ -230,8 +244,8 @@ ordersRouter.patch("/:id", requireAgentPermission("can_create_po"), uploadAttach
     if (!attachment) return res.status(400).json({ error: "PO attachment must be a JPG, PNG, or PDF" });
   }
 
-  const existing = await one<{ id: string; order_no: string; status: string; agent_id: string; company_name: string }>(
-    `SELECT o.id, o.order_no, o.status, c.agent_id, c.company_name
+  const existing = await one<{ id: string; order_no: string; status: string; agent_id: string; company_name: string; discount_amount: number }>(
+    `SELECT o.id, o.order_no, o.status, o.discount_amount, c.agent_id, c.company_name
        FROM orders o JOIN clients c ON c.id = o.client_id
       WHERE o.id = $1`,
     [req.params.id]
@@ -239,6 +253,12 @@ ordersRouter.patch("/:id", requireAgentPermission("can_create_po"), uploadAttach
   if (!existing || (user.role === "agent" && existing.agent_id !== user.id))
     return res.status(404).json({ error: "Order not found" });
   if (existing.status !== "pending") return res.status(409).json({ error: "Only a pending order can be revised" });
+
+  // Omitting discount_amount keeps whatever was already set, same as the
+  // attachment; but it must still fit the (possibly revised) item subtotal.
+  const discountAmount = parsed.data.discount_amount ?? Number(existing.discount_amount);
+  if (discountAmount > itemsSubtotal(items))
+    return res.status(400).json({ error: "Discount can't exceed the order subtotal" });
 
   const updated = await tx(async (c) => {
     await c.query("DELETE FROM order_items WHERE order_id = $1", [existing.id]);
@@ -250,10 +270,11 @@ ordersRouter.patch("/:id", requireAgentPermission("can_create_po"), uploadAttach
         it.unit_price,
       ]);
 
-    await c.query("UPDATE orders SET po_date = $2, po_number = $3 WHERE id = $1", [
+    await c.query("UPDATE orders SET po_date = $2, po_number = $3, discount_amount = $4 WHERE id = $1", [
       existing.id,
       po_date || null,
       po_number?.trim() || null,
+      discountAmount,
     ]);
 
     if (req.file && attachment) {
@@ -368,10 +389,11 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
         "SELECT coalesce(sum(qty * unit_price), 0) AS total FROM order_items WHERE order_id = $1",
         [order.id]
       );
+      const invoiceAmount = Math.max(0, Number(totalRes.rows[0].total) - Number(order.discount_amount));
       const invRes = await c.query(
         `INSERT INTO invoices (invoice_no, order_id, client_id, amount, due_date)
          VALUES ($1, $2, $3, $4, CURRENT_DATE + $5::int) RETURNING *`,
-        [invoiceNo, order.id, order.client_id, totalRes.rows[0].total, dueDays]
+        [invoiceNo, order.id, order.client_id, invoiceAmount, dueDays]
       );
       const invoice = invRes.rows[0];
 
@@ -382,7 +404,11 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
           `/orders/${order.id}`,
           c
         );
-      await audit(user.id, "order.approved", "order", order.id, { invoice_no: invoiceNo }, c);
+      await audit(
+        user.id, "order.approved", "order", order.id,
+        { invoice_no: invoiceNo, discount_amount: Number(order.discount_amount), invoice_amount: invoiceAmount },
+        c
+      );
       return { order, invoice };
     });
   } catch (err: any) {
@@ -457,6 +483,11 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
               result.order.po_date ? ` (dated ${shortDate(result.order.po_date)})` : ""
             }\n`
           : "";
+        const subtotal = items.reduce((s, it) => s + Number(it.qty) * Number(it.unit_price), 0);
+        const discountAmount = Number(result.order.discount_amount);
+        const totalsLines = discountAmount > 0
+          ? `Subtotal: ${peso(subtotal)}\nDiscount: -${peso(discountAmount)}\nTotal: ${peso(result.invoice.amount)}\n`
+          : `Total: ${peso(result.invoice.amount)}\n`;
         const body =
           `Client: ${client.company_name} (${client.contact_name})\n` +
           `Agent: ${agent?.full_name || "—"}\n` +
@@ -466,7 +497,7 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
           `VAT status: ${VAT_STATUS_LABELS[result.order.vat_status] || result.order.vat_status}\n` +
           poLine +
           `\nLine items:\n${lines}\n\n` +
-          `Total: ${peso(result.invoice.amount)}\n` +
+          totalsLines +
           `Due: ${shortDate(result.invoice.due_date)}`;
         return sendMail(config.salesForwardEmail, `Order approved — ${result.order.order_no}`, body);
       })

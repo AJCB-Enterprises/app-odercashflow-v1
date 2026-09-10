@@ -129,6 +129,36 @@ describe("POST /invoices/:id/payments", () => {
     expect(ewtToken.revoked_at).toBeNull();
   });
 
+  it("closes the balance when cash plus a payment-time discount together cover the invoice", async () => {
+    const { token } = await asAdmin();
+    const client = await createClientRow();
+    const invoice = await createInvoice({ clientId: client.id, amount: 1000 });
+
+    const res = await request(app)
+      .post(`/invoices/${invoice.id}/payments`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount_received: 950, discount_amount: 50 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.fully_paid).toBe(true);
+    expect(res.body.invoice.status).toBe("paid");
+  });
+
+  it("leaves a balance when cash, EWT, and discount together still fall short", async () => {
+    const { token } = await asAdmin();
+    const client = await createClientRow();
+    const invoice = await createInvoice({ clientId: client.id, amount: 1000 });
+
+    const res = await request(app)
+      .post(`/invoices/${invoice.id}/payments`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount_received: 900, ewt_amount: 20, discount_amount: 30 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.fully_paid).toBe(false);
+    expect(Number(res.body.balance_due)).toBe(50);
+  });
+
   it("is admin-only — an agent gets 403", async () => {
     const agent = await createUser({ role: "agent" });
     const client = await createClientRow();

@@ -89,7 +89,8 @@ clientsRouter.get("/:id", async (req, res) => {
   const [orders, invoices] = await Promise.all([
     q(
       `SELECT o.id, o.order_no, o.status, o.reject_reason, o.created_at, o.po_number, o.po_date, o.dr_no,
-              coalesce(sum(oi.qty * oi.unit_price), 0) AS total,
+              greatest(0, coalesce(sum(oi.qty * oi.unit_price), 0) - o.discount_amount) AS total,
+              o.discount_amount,
               (EXISTS (SELECT 1 FROM invoices iv WHERE iv.order_id = o.id)
                OR EXISTS (SELECT 1 FROM invoice_orders io WHERE io.order_id = o.id)) AS is_invoiced
          FROM orders o LEFT JOIN order_items oi ON oi.order_id = o.id
@@ -99,8 +100,9 @@ clientsRouter.get("/:id", async (req, res) => {
     q(
       `SELECT id, invoice_no, amount, due_date, status, ewt_name,
               (status = 'unpaid' AND due_date < CURRENT_DATE) AS is_overdue,
-              (amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0)) AS balance_due,
+              (amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0)) AS balance_due,
               COALESCE((SELECT SUM(ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0) AS total_ewt,
+              COALESCE((SELECT SUM(discount_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0) AS total_discount,
               (SELECT original_name FROM receipts WHERE invoice_id = invoices.id ORDER BY uploaded_at DESC LIMIT 1) AS receipt_name,
               (SELECT json_agg(json_build_object('order_no', o.order_no, 'po_number', o.po_number, 'dr_no', o.dr_no) ORDER BY o.order_no)
                  FROM invoice_orders io JOIN orders o ON o.id = io.order_id WHERE io.invoice_id = invoices.id) AS covered_orders
@@ -298,8 +300,13 @@ clientsRouter.post("/:id/consolidated-invoice", requireAdmin, async (req, res) =
       const eligibleIds: string[] = eligRes.rows.map((r) => r.id);
       const orderNos: string[] = eligRes.rows.map((r) => r.order_no);
 
+      // Net of each covered order's own discount_amount, same as a standalone
+      // (non-consolidated) approval would apply it.
       const totalRes = await c.query(
-        "SELECT coalesce(sum(qty * unit_price), 0) AS total FROM order_items WHERE order_id = ANY($1::uuid[])",
+        `SELECT greatest(0,
+                  coalesce((SELECT sum(qty * unit_price) FROM order_items WHERE order_id = ANY($1::uuid[])), 0)
+                  - coalesce((SELECT sum(discount_amount) FROM orders WHERE id = ANY($1::uuid[])), 0)
+                ) AS total`,
         [eligibleIds]
       );
       const dueDays = DUE_DAYS[client.payment_terms] ?? 30;

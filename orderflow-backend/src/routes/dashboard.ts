@@ -26,7 +26,7 @@ dashboardRouter.get("/payments-due", async (req, res) => {
     `SELECT i.id, i.invoice_no, i.amount, i.due_date, i.status,
             (i.status = 'unpaid' AND i.due_date < CURRENT_DATE) AS is_overdue,
             (i.due_date - CURRENT_DATE) AS days_until_due,
-            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS balance_due,
+            (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS balance_due,
             c.id AS client_id, c.company_name, c.contact_name, c.email, c.collects_in_person,
             (c.email IS NOT NULL OR cardinality(c.extra_emails) > 0) AS has_email
        FROM invoices i

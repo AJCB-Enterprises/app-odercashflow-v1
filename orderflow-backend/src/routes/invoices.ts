@@ -17,10 +17,13 @@ invoicesRouter.use(requireAuth);
  * covers tax withheld at source (BIR Form 2307) — both close the balance.
  */
 const BALANCE_DUE_SQL =
-  "(i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0))";
+  "(i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = i.id), 0))";
 
 /** Total EWT applied across all payments — shown even after the invoice is fully paid. */
 const TOTAL_EWT_SQL = "COALESCE((SELECT SUM(ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)";
+
+/** Total payment-time discount applied across all payments — shown even after the invoice is fully paid. */
+const TOTAL_DISCOUNT_SQL = "COALESCE((SELECT SUM(discount_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)";
 
 /** Rounding tolerance (pesos) below which a balance counts as fully settled. */
 const BALANCE_TOLERANCE = 1.0;
@@ -50,6 +53,7 @@ invoicesRouter.get("/", requireAgentPermission("can_view_invoices"), async (req,
             (i.status = 'unpaid' AND i.due_date < CURRENT_DATE) AS is_overdue,
             ${BALANCE_DUE_SQL} AS balance_due,
             ${TOTAL_EWT_SQL} AS total_ewt,
+            ${TOTAL_DISCOUNT_SQL} AS total_discount,
             i.ewt_name,
             c.id AS client_id, c.company_name, c.collects_in_person,
             r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at
@@ -158,25 +162,30 @@ invoicesRouter.post("/:id/resend-reminder", requireAdmin, async (req, res) => {
 const PaymentBody = z.object({
   amount_received: z.number().min(0),
   ewt_amount: z.number().min(0).optional(),
+  discount_amount: z.number().min(0).optional(),
   note: z.string().optional(),
 });
 
 /**
  * POST /invoices/:id/payments — admin records what actually came in against
  * this invoice, checked against bank records: cash/bank proceeds
- * (amount_received) plus any tax withheld at source (ewt_amount, from the
- * client's BIR Form 2307). A short payment — e.g. paid net of EWT with the
- * 2307 still outstanding — leaves a balance: the invoice stays open and
- * automatically re-enters the normal reminder cycle for the remainder,
- * rather than being silently treated as settled. Once the running balance
- * closes out (within a small rounding tolerance), the invoice is marked paid
- * and its upload links are revoked, same as before.
+ * (amount_received), any tax withheld at source (ewt_amount, from the
+ * client's BIR Form 2307), and any discount granted at settlement time
+ * (discount_amount — e.g. an early-payment or goodwill discount decided now,
+ * separate from any discount already baked into the order/invoice amount).
+ * All three close the balance the same way. A short payment — e.g. paid net
+ * of EWT with the 2307 still outstanding — leaves a balance: the invoice
+ * stays open and automatically re-enters the normal reminder cycle for the
+ * remainder, rather than being silently treated as settled. Once the running
+ * balance closes out (within a small rounding tolerance), the invoice is
+ * marked paid and its upload links are revoked, same as before.
  */
 invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
   const parsed = PaymentBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const { amount_received, note } = parsed.data;
   const ewt_amount = parsed.data.ewt_amount ?? 0;
+  const discount_amount = parsed.data.discount_amount ?? 0;
   const user = req.user!;
 
   const result = await tx(async (c) => {
@@ -191,9 +200,9 @@ invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
       inv.id,
     ]);
     await c.query(
-      `INSERT INTO invoice_payments (invoice_id, receipt_id, amount_received, ewt_amount, verified_by, note)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [inv.id, receipt?.id ?? null, amount_received, ewt_amount, user.id, note ?? null]
+      `INSERT INTO invoice_payments (invoice_id, receipt_id, amount_received, ewt_amount, discount_amount, verified_by, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [inv.id, receipt?.id ?? null, amount_received, ewt_amount, discount_amount, user.id, note ?? null]
     );
     await c.query(
       `UPDATE receipts SET verified_by = $2, verified_at = now()
@@ -222,7 +231,7 @@ invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
         "invoice.payment_recorded",
         "invoice",
         inv.id,
-        { invoice_no: inv.invoice_no, amount_received, ewt_amount, balance_due: balanceDue },
+        { invoice_no: inv.invoice_no, amount_received, ewt_amount, discount_amount, balance_due: balanceDue },
         c
       );
     }
