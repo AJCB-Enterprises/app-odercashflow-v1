@@ -33,6 +33,77 @@ export const OrderChip = ({ status }: { status: string }) =>
   : status === "cancelled" ? <span className="chip gray">Cancelled</span>
   : <span className="chip amber">Pending review</span>;
 
+/**
+ * ---- Client picker ----
+ * A type-to-filter combobox, so picking the wrong client out of a long
+ * dropdown by accident isn't a risk — typing narrows the list to matching
+ * company names instead of scrolling/clicking through every one.
+ */
+export function ClientPicker({ clients, value, onChange, id, placeholder }: {
+  clients: { id: string; company_name: string }[];
+  value: string;
+  onChange: (id: string) => void;
+  id?: string;
+  placeholder?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const selected = clients.find((c) => c.id === value);
+
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? clients.filter((c) => c.company_name.toLowerCase().includes(q)) : clients;
+
+  const pick = (c: { id: string; company_name: string }) => {
+    onChange(c.id);
+    setQuery("");
+    setOpen(false);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActiveIndex((i) => Math.min(i + 1, filtered.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (filtered[activeIndex]) pick(filtered[activeIndex]); }
+    else if (e.key === "Escape") setOpen(false);
+  };
+
+  return (
+    <div className="typeahead" ref={boxRef} style={{ maxWidth: 340 }}>
+      <input
+        id={id}
+        className="f"
+        style={{ marginBottom: 0 }}
+        value={open ? query : selected?.company_name || ""}
+        placeholder={placeholder || "Type a client name…"}
+        onFocus={() => { setOpen(true); setQuery(""); setActiveIndex(0); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIndex(0); }}
+        onKeyDown={onKeyDown}
+        autoComplete="off"
+      />
+      {open && (
+        <div className="typeahead-list">
+          {filtered.length ? filtered.map((c, i) => (
+            <div key={c.id} className={`typeahead-item${i === activeIndex ? " active" : ""}`}
+              onMouseDown={(e) => { e.preventDefault(); pick(c); }}
+              onMouseEnter={() => setActiveIndex(i)}>
+              {c.company_name}
+            </div>
+          )) : <div className="typeahead-empty">No clients match "{query}"</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---- toast ---- */
 const ToastCtx = createContext<(msg: string, isError?: boolean) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);

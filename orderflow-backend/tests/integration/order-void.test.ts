@@ -132,3 +132,46 @@ describe("POST /orders/:id/void", () => {
     expect(res.status).toBe(409);
   });
 });
+
+describe("a voided Sales Invoice number is reusable", () => {
+  it("lets a new order be approved with the same SI # after the old one is voided", async () => {
+    const admin = await createUser({ role: "admin" });
+    const client = await createClientRow();
+    const firstOrder = await createOrder({ clientId: client.id, status: "approved" });
+    await createInvoice({ clientId: client.id, amount: 500, orderId: firstOrder.id, invoiceNo: "SI-REUSE-001", status: "unpaid" });
+
+    const voidRes = await request(app)
+      .post(`/orders/${firstOrder.id}/void`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({});
+    expect(voidRes.status).toBe(200);
+
+    const secondOrder = await createOrder({ clientId: client.id, status: "pending" });
+    const approveRes = await request(app)
+      .post(`/orders/${secondOrder.id}/approve`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ invoice_no: "SI-REUSE-001" });
+
+    expect(approveRes.status).toBe(200);
+    expect(approveRes.body.invoice.invoice_no).toBe("SI-REUSE-001");
+
+    const { rows } = await pool.query("SELECT status FROM invoices WHERE invoice_no = 'SI-REUSE-001' ORDER BY created_at");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].status).toBe("void");
+    expect(rows[1].status).toBe("unpaid");
+  });
+
+  it("still rejects a duplicate SI # among non-void invoices", async () => {
+    const admin = await createUser({ role: "admin" });
+    const client = await createClientRow();
+    await createInvoice({ clientId: client.id, amount: 100, invoiceNo: "SI-REUSE-002", status: "unpaid" });
+    const order = await createOrder({ clientId: client.id, status: "pending" });
+
+    const res = await request(app)
+      .post(`/orders/${order.id}/approve`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ invoice_no: "SI-REUSE-002" });
+
+    expect(res.status).toBe(409);
+  });
+});

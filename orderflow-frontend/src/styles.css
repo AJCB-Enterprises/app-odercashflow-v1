@@ -73,6 +73,11 @@ table.ledger{width:100%;border-collapse:collapse}
 .menu button{display:block;width:100%;text-align:left;font-family:var(--sans);font-size:13.5px;background:none;border:none;padding:9px 14px;cursor:pointer;color:var(--ink)}
 .menu button:hover{background:#EFEEE7}
 .menu button.red{color:var(--red)}
+.typeahead{position:relative}
+.typeahead-list{position:absolute;top:calc(100% + 2px);left:0;right:0;max-height:260px;overflow-y:auto;background:var(--card);border:1px solid var(--rule2);box-shadow:0 4px 14px rgba(34,38,47,.14);z-index:30}
+.typeahead-item{padding:8px 10px;font-family:var(--sans);font-size:14px;cursor:pointer;color:var(--ink)}
+.typeahead-item:hover,.typeahead-item.active{background:#EFEEE7}
+.typeahead-empty{padding:8px 10px;font-family:var(--sans);font-size:13.5px;color:var(--muted)}
 label.f{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}
 input.f,select.f,textarea.f{width:100%;font-family:var(--sans);font-size:14px;padding:8px 10px;border:1px solid var(--rule2);background:#FCFBF8;color:var(--ink)}
 textarea.f{resize:vertical}

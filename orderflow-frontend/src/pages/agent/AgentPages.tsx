@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
-import { Card, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, PAYMENT_TERM_OPTIONS, useData, useToast, VAT_STATUS_OPTIONS } from "../../components";
+import { Card, ClientPicker, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, PAYMENT_TERM_OPTIONS, useData, useToast, VAT_STATUS_OPTIONS } from "../../components";
 
 /* ---- My assigned clients ---- */
 export function AgentClients() {
@@ -122,9 +122,7 @@ export function AgentNewOrder() {
       {loading ? <Loading /> : (
         <Card>
           <label className="f" htmlFor="poc">On behalf of client</label>
-          <select id="poc" className="f" style={{ maxWidth: 340 }} value={chosen} onChange={(e) => setClientId(e.target.value)}>
-            {(clients || []).map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-          </select>
+          <ClientPicker id="poc" clients={clients || []} value={chosen} onChange={setClientId} />
           <label className="f" htmlFor="pot">Payment terms</label>
           <select id="pot" className="f" style={{ maxWidth: 340 }} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
             {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
