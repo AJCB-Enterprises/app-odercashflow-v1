@@ -459,7 +459,11 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
 
   // Internal copy of the full approved order — sales/fulfillment don't have
   // app logins, so this is their only view into what was just approved.
-  if (config.salesForwardEmail && client && result.invoice) {
+  // Consolidated-invoicing orders (DR # instead of an invoice) are included
+  // too, on the same address, so fulfillment sees every approval either way
+  // — just without invoice/due-date lines, since those aren't decided until
+  // the eventual consolidated Sales Invoice.
+  if (config.salesForwardEmail && client && (result.invoice || result.order.dr_no)) {
     Promise.all([
       result.order.created_by
         ? one<{ full_name: string }>("SELECT full_name FROM users WHERE id = $1", [result.order.created_by])
@@ -485,20 +489,32 @@ ordersRouter.post("/:id/approve", requireAdmin, async (req, res) => {
           : "";
         const subtotal = items.reduce((s, it) => s + Number(it.qty) * Number(it.unit_price), 0);
         const discountAmount = Number(result.order.discount_amount);
-        const totalsLines = discountAmount > 0
-          ? `Subtotal: ${peso(subtotal)}\nDiscount: -${peso(discountAmount)}\nTotal: ${peso(result.invoice.amount)}\n`
-          : `Total: ${peso(result.invoice.amount)}\n`;
+
+        const docLine = result.invoice
+          ? `Sales Invoice: ${result.invoice.invoice_no}\n`
+          : `Delivery Receipt (DR): ${result.order.dr_no}\n`;
+        const totalsLines = result.invoice
+          ? discountAmount > 0
+            ? `Subtotal: ${peso(subtotal)}\nDiscount: -${peso(discountAmount)}\nTotal: ${peso(result.invoice.amount)}\n`
+            : `Total: ${peso(result.invoice.amount)}\n`
+          : discountAmount > 0
+          ? `Subtotal: ${peso(subtotal)}\nDiscount: -${peso(discountAmount)}\n`
+          : `Subtotal: ${peso(subtotal)}\n`;
+        const dueLine = result.invoice
+          ? `Due: ${shortDate(result.invoice.due_date)}`
+          : `Will be billed later on a consolidated Sales Invoice.`;
+
         const body =
           `Client: ${client.company_name} (${client.contact_name})\n` +
           `Agent: ${agent?.full_name || "—"}\n` +
           `Sales Order: ${result.order.order_no}\n` +
-          `Sales Invoice: ${result.invoice.invoice_no}\n` +
+          docLine +
           `Payment terms: ${PAYMENT_TERM_LABELS[result.order.payment_terms] || result.order.payment_terms}\n` +
           `VAT status: ${VAT_STATUS_LABELS[result.order.vat_status] || result.order.vat_status}\n` +
           poLine +
           `\nLine items:\n${lines}\n\n` +
           totalsLines +
-          `Due: ${shortDate(result.invoice.due_date)}`;
+          dueLine;
         return sendMail(config.salesForwardEmail, `Order approved — ${result.order.order_no}`, body);
       })
       .catch((e) => console.error("sales forward email failed:", e.message));
