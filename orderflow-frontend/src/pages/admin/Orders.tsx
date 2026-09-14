@@ -139,7 +139,7 @@ export function OrderDetail() {
       const res = await api.post(`/orders/${id}/cancel-item`, { item_id: itemId });
       toast(
         res.invoice
-          ? `Item cancelled — invoice ${res.invoice.invoice_no} adjusted to ${peso(res.invoice.amount)}.`
+          ? `Item cancelled — ${res.consolidated ? "consolidated " : ""}invoice ${res.invoice.invoice_no} adjusted to ${peso(res.invoice.amount)}${res.consolidated ? " (shared with other orders)" : ""}.`
           : "Item cancelled from the order."
       );
       reload();

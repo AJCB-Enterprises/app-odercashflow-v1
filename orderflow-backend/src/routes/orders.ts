@@ -708,22 +708,29 @@ const CancelOrderItemBody = z.object({ item_id: z.string().uuid() });
  * replacing the whole items array — the rest of an already-approved/invoiced
  * order shouldn't be freely re-editable, only shrinkable by removing an item.
  *
- * If a direct 1:1 invoice exists, its amount is recomputed down to the new
- * subtotal (net of the order's own discount_amount) in the same transaction
- * — same blocks as void: not allowed once the order is part of a
- * consolidated invoice, or once the invoice has any payment activity at all
- * (even a short/partial payment), since there's no clean way to shrink an
- * invoice that's already been partly paid against. An order with a DR # that
- * hasn't been consolidated yet has no invoice at this point, so only the
- * item itself is removed. Always leaves at least one item — void the order
- * instead if the whole thing needs to go.
+ * Three cases for what's billing this order, handled the same way — shrink
+ * the item, then shrink whatever invoice it feeds:
+ *  - A direct 1:1 invoice: its amount is recomputed down to the new subtotal
+ *    (net of the order's own discount_amount).
+ *  - A consolidated invoice (this order is in invoice_orders): unlike void
+ *    and reassign-client, which can't cleanly touch one order out of a
+ *    shared invoice, removing one item is safe to allow — the invoice's
+ *    amount is recomputed by re-summing item totals (net of each order's own
+ *    discount) across *every* order still bundled into it, the same
+ *    computation used when the consolidated invoice was first created.
+ *  - No invoice yet (a DR # order not yet consolidated): only the item
+ *    itself is removed.
+ * In every case, blocked once the relevant invoice has any payment activity
+ * at all (even a short/partial payment) — no clean way to shrink an invoice
+ * that's already been partly paid against. Always leaves at least one item
+ * on the order — void it instead if the whole thing needs to go.
  */
 ordersRouter.post("/:id/cancel-item", requireAdmin, async (req, res) => {
   const user = req.user!;
   const parsed = CancelOrderItemBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
 
-  let result: { order: any; invoice: any } | null;
+  let result: { order: any; invoice: any; consolidated: boolean } | null;
   try {
     result = await tx(async (c) => {
       const ordRes = await c.query(
@@ -732,13 +739,6 @@ ordersRouter.post("/:id/cancel-item", requireAdmin, async (req, res) => {
       );
       const order = ordRes.rows[0];
       if (!order) return null;
-
-      const consolidatedRes = await c.query("SELECT 1 FROM invoice_orders WHERE order_id = $1", [order.id]);
-      if (consolidatedRes.rows.length) {
-        const err: any = new Error("This order is part of a consolidated invoice and its items can't be changed here");
-        err.code = "ALREADY_CONSOLIDATED";
-        throw err;
-      }
 
       const itemsRes = await c.query("SELECT * FROM order_items WHERE order_id = $1 FOR UPDATE", [order.id]);
       const items = itemsRes.rows;
@@ -754,12 +754,22 @@ ordersRouter.post("/:id/cancel-item", requireAdmin, async (req, res) => {
         throw err;
       }
 
-      const invRes = await c.query(
+      const directInvRes = await c.query(
         `SELECT iv.*, EXISTS(SELECT 1 FROM invoice_payments WHERE invoice_id = iv.id) AS has_payment
            FROM invoices iv WHERE iv.order_id = $1 FOR UPDATE`,
         [order.id]
       );
-      const invoice = invRes.rows[0] || null;
+      const directInvoice = directInvRes.rows[0] || null;
+
+      const consInvRes = await c.query(
+        `SELECT iv.*, EXISTS(SELECT 1 FROM invoice_payments WHERE invoice_id = iv.id) AS has_payment
+           FROM invoice_orders io JOIN invoices iv ON iv.id = io.invoice_id
+          WHERE io.order_id = $1 FOR UPDATE OF iv`,
+        [order.id]
+      );
+      const consolidatedInvoice = consInvRes.rows[0] || null;
+
+      const invoice = directInvoice || consolidatedInvoice;
       if (invoice && (invoice.status !== "unpaid" || invoice.has_payment)) {
         const err: any = new Error(`Invoice ${invoice.invoice_no} already has payment activity — resolve that first`);
         err.code = "HAS_PAYMENT";
@@ -783,9 +793,27 @@ ordersRouter.post("/:id/cancel-item", requireAdmin, async (req, res) => {
       }
 
       let updatedInvoice = null;
-      if (invoice) {
+      if (directInvoice) {
         const newAmount = Math.max(0, remainingSubtotal - discountAmount);
-        const updInvRes = await c.query("UPDATE invoices SET amount = $2 WHERE id = $1 RETURNING *", [invoice.id, newAmount]);
+        const updInvRes = await c.query("UPDATE invoices SET amount = $2 WHERE id = $1 RETURNING *", [directInvoice.id, newAmount]);
+        updatedInvoice = updInvRes.rows[0];
+      } else if (consolidatedInvoice) {
+        // Same computation as POST /clients/:id/consolidated-invoice: item
+        // totals across every order still bundled into this invoice, net of
+        // each of those orders' own discount_amount.
+        const bundleRes = await c.query(
+          `SELECT greatest(0,
+                    coalesce((SELECT sum(oi.qty * oi.unit_price) FROM order_items oi
+                               JOIN invoice_orders io ON io.order_id = oi.order_id
+                              WHERE io.invoice_id = $1), 0)
+                    - coalesce((SELECT sum(o.discount_amount) FROM orders o
+                                 JOIN invoice_orders io ON io.order_id = o.id
+                                WHERE io.invoice_id = $1), 0)
+                  ) AS total`,
+          [consolidatedInvoice.id]
+        );
+        const newAmount = Number(bundleRes.rows[0].total);
+        const updInvRes = await c.query("UPDATE invoices SET amount = $2 WHERE id = $1 RETURNING *", [consolidatedInvoice.id, newAmount]);
         updatedInvoice = updInvRes.rows[0];
       }
 
@@ -802,15 +830,14 @@ ordersRouter.post("/:id/cancel-item", requireAdmin, async (req, res) => {
         user.id, "order.item_cancelled", "order", order.id,
         {
           item_id: target.id, description: target.description, qty: Number(target.qty), unit_price: Number(target.unit_price),
-          invoice_id: invoice?.id ?? null, new_invoice_amount: updatedInvoice?.amount ?? null,
+          invoice_id: invoice?.id ?? null, consolidated: !!consolidatedInvoice, new_invoice_amount: updatedInvoice?.amount ?? null,
         },
         c
       );
 
-      return { order, invoice: updatedInvoice };
+      return { order, invoice: updatedInvoice, consolidated: !!consolidatedInvoice };
     });
   } catch (err: any) {
-    if (err?.code === "ALREADY_CONSOLIDATED") return res.status(409).json({ error: err.message });
     if (err?.code === "ITEM_NOT_FOUND") return res.status(404).json({ error: err.message });
     if (err?.code === "LAST_ITEM") return res.status(409).json({ error: err.message });
     if (err?.code === "HAS_PAYMENT") return res.status(409).json({ error: err.message });

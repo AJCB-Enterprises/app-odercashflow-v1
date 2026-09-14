@@ -186,7 +186,67 @@ describe("POST /orders/:id/cancel-item", () => {
     expect(res.status).toBe(409);
   });
 
-  it("blocks an order already bundled into a consolidated invoice", async () => {
+  it("cancels an item from an order bundled into a consolidated invoice, recomputing across every bundled order", async () => {
+    const admin = await createUser({ role: "admin" });
+    const client = await createClientRow({ consolidatedInvoicing: true });
+    const orderA = await createOrder({
+      clientId: client.id, status: "approved",
+      items: [
+        { description: "Widget", qty: 1, unit_price: 100 },
+        { description: "Gadget", qty: 1, unit_price: 200 },
+      ],
+    });
+    const orderB = await createOrder({
+      clientId: client.id, status: "approved",
+      items: [{ description: "Sprocket", qty: 1, unit_price: 50 }],
+    });
+    const consolidateRes = await request(app)
+      .post(`/clients/${client.id}/consolidated-invoice`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ order_ids: [orderA.id, orderB.id], invoice_no: "SI-CANCEL-ITEM-001" });
+    expect(Number(consolidateRes.body.invoice.amount)).toBe(350); // 100 + 200 + 50
+    const [widget] = (await itemIds(orderA.id)).filter((it) => it.description === "Widget");
+
+    const res = await request(app)
+      .post(`/orders/${orderA.id}/cancel-item`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ item_id: widget.id });
+
+    expect(res.status).toBe(200);
+    expect(res.body.consolidated).toBe(true);
+    expect(Number(res.body.invoice.amount)).toBe(250); // 350 - 100, Gadget + Sprocket remain
+
+    const { rows } = await pool.query("SELECT amount FROM invoices WHERE invoice_no = 'SI-CANCEL-ITEM-001'");
+    expect(Number(rows[0].amount)).toBe(250);
+  });
+
+  it("nets each bundled order's own discount when recomputing the consolidated invoice", async () => {
+    const admin = await createUser({ role: "admin" });
+    const client = await createClientRow({ consolidatedInvoicing: true });
+    const orderA = await createOrder({
+      clientId: client.id, status: "approved",
+      items: [
+        { description: "Widget", qty: 1, unit_price: 100 },
+        { description: "Gadget", qty: 1, unit_price: 200 },
+      ],
+      discountAmount: 20,
+    });
+    await request(app)
+      .post(`/clients/${client.id}/consolidated-invoice`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ order_ids: [orderA.id], invoice_no: "SI-CANCEL-ITEM-002" });
+    const [widget] = (await itemIds(orderA.id)).filter((it) => it.description === "Widget");
+
+    const res = await request(app)
+      .post(`/orders/${orderA.id}/cancel-item`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ item_id: widget.id });
+
+    expect(res.status).toBe(200);
+    expect(Number(res.body.invoice.amount)).toBe(180); // 200 - 20 discount
+  });
+
+  it("blocks when the consolidated invoice already has payment activity", async () => {
     const admin = await createUser({ role: "admin" });
     const client = await createClientRow({ consolidatedInvoicing: true });
     const order = await createOrder({
@@ -196,11 +256,36 @@ describe("POST /orders/:id/cancel-item", () => {
         { description: "Gadget", qty: 1, unit_price: 200 },
       ],
     });
+    const consolidateRes = await request(app)
+      .post(`/clients/${client.id}/consolidated-invoice`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ order_ids: [order.id], invoice_no: "SI-CANCEL-ITEM-003" });
+    await request(app)
+      .post(`/invoices/${consolidateRes.body.invoice.id}/payments`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ amount_received: 100 });
+    const [widget] = (await itemIds(order.id)).filter((it) => it.description === "Widget");
+
+    const res = await request(app)
+      .post(`/orders/${order.id}/cancel-item`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ item_id: widget.id });
+
+    expect(res.status).toBe(409);
+  });
+
+  it("still blocks cancelling the last item of an order bundled into a consolidated invoice", async () => {
+    const admin = await createUser({ role: "admin" });
+    const client = await createClientRow({ consolidatedInvoicing: true });
+    const order = await createOrder({
+      clientId: client.id, status: "approved",
+      items: [{ description: "Widget", qty: 1, unit_price: 100 }],
+    });
     await request(app)
       .post(`/clients/${client.id}/consolidated-invoice`)
       .set("Authorization", `Bearer ${tokenFor(admin)}`)
-      .send({ order_ids: [order.id], invoice_no: "SI-CANCEL-ITEM-001" });
-    const [widget] = (await itemIds(order.id)).filter((it) => it.description === "Widget");
+      .send({ order_ids: [order.id], invoice_no: "SI-CANCEL-ITEM-004" });
+    const [widget] = await itemIds(order.id);
 
     const res = await request(app)
       .post(`/orders/${order.id}/cancel-item`)
