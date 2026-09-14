@@ -17,10 +17,11 @@ const applyMigrations = async () => {
   }
 };
 
-// Mirrors migrations/002_default_settings.sql. reminder_settings is reference
-// data, not per-test data, but TRUNCATE ... CASCADE wipes it anyway (it has
-// an FK -- updated_by -- referencing users, which is truncated below), so
-// it's upserted back to defaults after every truncate rather than excluded.
+// Mirrors migrations/002_default_settings.sql + 020_disable_order_reminders.sql.
+// reminder_settings is reference data, not per-test data, but
+// TRUNCATE ... CASCADE wipes it anyway (it has an FK -- updated_by --
+// referencing users, which is truncated below), so it's upserted back to
+// defaults after every truncate rather than excluded.
 const REMINDER_DEFAULTS_SQL = `
   INSERT INTO reminder_settings (id, type, days_before, frequency_days, send_time, timezone, template, is_enabled, updated_by)
   VALUES
@@ -29,7 +30,7 @@ const REMINDER_DEFAULTS_SQL = `
      true, NULL),
     (2, 'order', 0, 7, '09:00', 'Asia/Manila',
      'Hi {{contact}}, order {{order}} is awaiting action. Your agent will follow up, or expect an update soon.',
-     true, NULL)
+     false, NULL)
   ON CONFLICT (id) DO UPDATE SET
     days_before = EXCLUDED.days_before, frequency_days = EXCLUDED.frequency_days,
     send_time = EXCLUDED.send_time, timezone = EXCLUDED.timezone,
