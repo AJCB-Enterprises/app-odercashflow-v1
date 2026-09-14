@@ -697,3 +697,127 @@ ordersRouter.post("/:id/void", requireAdmin, async (req, res) => {
 
   res.json(result);
 });
+
+const CancelOrderItemBody = z.object({ item_id: z.string().uuid() });
+
+/**
+ * POST /orders/:id/cancel-item — admin removes a single line item from an
+ * already-approved order (e.g. one item turned out to be out of stock after
+ * approval) without voiding the whole order and its invoice. Unlike the
+ * agent's pending-order revision, this targets one item by id rather than
+ * replacing the whole items array — the rest of an already-approved/invoiced
+ * order shouldn't be freely re-editable, only shrinkable by removing an item.
+ *
+ * If a direct 1:1 invoice exists, its amount is recomputed down to the new
+ * subtotal (net of the order's own discount_amount) in the same transaction
+ * — same blocks as void: not allowed once the order is part of a
+ * consolidated invoice, or once the invoice has any payment activity at all
+ * (even a short/partial payment), since there's no clean way to shrink an
+ * invoice that's already been partly paid against. An order with a DR # that
+ * hasn't been consolidated yet has no invoice at this point, so only the
+ * item itself is removed. Always leaves at least one item — void the order
+ * instead if the whole thing needs to go.
+ */
+ordersRouter.post("/:id/cancel-item", requireAdmin, async (req, res) => {
+  const user = req.user!;
+  const parsed = CancelOrderItemBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+
+  let result: { order: any; invoice: any } | null;
+  try {
+    result = await tx(async (c) => {
+      const ordRes = await c.query(
+        "SELECT * FROM orders WHERE id = $1 AND status = 'approved' FOR UPDATE",
+        [req.params.id]
+      );
+      const order = ordRes.rows[0];
+      if (!order) return null;
+
+      const consolidatedRes = await c.query("SELECT 1 FROM invoice_orders WHERE order_id = $1", [order.id]);
+      if (consolidatedRes.rows.length) {
+        const err: any = new Error("This order is part of a consolidated invoice and its items can't be changed here");
+        err.code = "ALREADY_CONSOLIDATED";
+        throw err;
+      }
+
+      const itemsRes = await c.query("SELECT * FROM order_items WHERE order_id = $1 FOR UPDATE", [order.id]);
+      const items = itemsRes.rows;
+      const target = items.find((it: any) => it.id === parsed.data.item_id);
+      if (!target) {
+        const err: any = new Error("Item not found on this order");
+        err.code = "ITEM_NOT_FOUND";
+        throw err;
+      }
+      if (items.length <= 1) {
+        const err: any = new Error("An order needs at least one item — void the order instead");
+        err.code = "LAST_ITEM";
+        throw err;
+      }
+
+      const invRes = await c.query(
+        `SELECT iv.*, EXISTS(SELECT 1 FROM invoice_payments WHERE invoice_id = iv.id) AS has_payment
+           FROM invoices iv WHERE iv.order_id = $1 FOR UPDATE`,
+        [order.id]
+      );
+      const invoice = invRes.rows[0] || null;
+      if (invoice && (invoice.status !== "unpaid" || invoice.has_payment)) {
+        const err: any = new Error(`Invoice ${invoice.invoice_no} already has payment activity — resolve that first`);
+        err.code = "HAS_PAYMENT";
+        throw err;
+      }
+
+      await c.query("DELETE FROM order_items WHERE id = $1", [target.id]);
+
+      const remainingRes = await c.query(
+        "SELECT coalesce(sum(qty * unit_price), 0) AS total FROM order_items WHERE order_id = $1",
+        [order.id]
+      );
+      const remainingSubtotal = Number(remainingRes.rows[0].total);
+      const discountAmount = Number(order.discount_amount);
+      if (discountAmount > remainingSubtotal) {
+        const err: any = new Error(
+          `This order's ${peso(discountAmount)} discount would exceed the remaining subtotal (${peso(remainingSubtotal)}) — adjust the discount first`
+        );
+        err.code = "DISCOUNT_EXCEEDS";
+        throw err;
+      }
+
+      let updatedInvoice = null;
+      if (invoice) {
+        const newAmount = Math.max(0, remainingSubtotal - discountAmount);
+        const updInvRes = await c.query("UPDATE invoices SET amount = $2 WHERE id = $1 RETURNING *", [invoice.id, newAmount]);
+        updatedInvoice = updInvRes.rows[0];
+      }
+
+      if (order.created_by)
+        await notifyUser(
+          order.created_by,
+          `${order.order_no}: item "${target.description}" was cancelled by admin${
+            updatedInvoice ? ` — invoice ${updatedInvoice.invoice_no} adjusted to ${peso(updatedInvoice.amount)}` : "."
+          }`,
+          `/orders/${order.id}`,
+          c
+        );
+      await audit(
+        user.id, "order.item_cancelled", "order", order.id,
+        {
+          item_id: target.id, description: target.description, qty: Number(target.qty), unit_price: Number(target.unit_price),
+          invoice_id: invoice?.id ?? null, new_invoice_amount: updatedInvoice?.amount ?? null,
+        },
+        c
+      );
+
+      return { order, invoice: updatedInvoice };
+    });
+  } catch (err: any) {
+    if (err?.code === "ALREADY_CONSOLIDATED") return res.status(409).json({ error: err.message });
+    if (err?.code === "ITEM_NOT_FOUND") return res.status(404).json({ error: err.message });
+    if (err?.code === "LAST_ITEM") return res.status(409).json({ error: err.message });
+    if (err?.code === "HAS_PAYMENT") return res.status(409).json({ error: err.message });
+    if (err?.code === "DISCOUNT_EXCEEDS") return res.status(409).json({ error: err.message });
+    throw err;
+  }
+  if (!result) return res.status(409).json({ error: "Order not found or not approved" });
+
+  res.json(result);
+});

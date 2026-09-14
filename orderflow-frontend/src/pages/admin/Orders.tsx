@@ -129,6 +129,27 @@ export function OrderDetail() {
     }
   };
 
+  // For an already-approved (and possibly invoiced) order — removes just the
+  // one item instead of resubmitting the whole items array, and adjusts the
+  // invoice amount server-side rather than reopening it for full editing.
+  const cancelApprovedItem = async (itemId: string, description: string) => {
+    if (!window.confirm(`Cancel "${description}" from this order? Its invoice (if any) will be adjusted.`)) return;
+    setItemBusy(true);
+    try {
+      const res = await api.post(`/orders/${id}/cancel-item`, { item_id: itemId });
+      toast(
+        res.invoice
+          ? `Item cancelled — invoice ${res.invoice.invoice_no} adjusted to ${peso(res.invoice.amount)}.`
+          : "Item cancelled from the order."
+      );
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setItemBusy(false);
+    }
+  };
+
   const decide = async (action: "approve" | "reject") => {
     setBusy(true);
     try {
@@ -239,12 +260,13 @@ export function OrderDetail() {
         </Card>
       )}
 
-      <Card title="Order details" pad={false}>
+      <Card title="Order details" pad={false}
+        hint={order.status === "approved" ? "cancelling an item here adjusts its invoice, if any — the rest of the order stays" : undefined}>
         <table className="ledger">
           <thead>
             <tr>
               <th>Item</th><th className="right">Qty</th><th className="right">Unit price</th><th className="right">Line total</th>
-              {order.status === "pending" && <th />}
+              {(order.status === "pending" || order.status === "approved") && <th />}
             </tr>
           </thead>
           <tbody>
@@ -261,15 +283,26 @@ export function OrderDetail() {
                       onClick={() => cancelItem(i)}>Cancel item</button>
                   </td>
                 )}
+                {order.status === "approved" && (
+                  <td className="right">
+                    <button className="btn sm ghost" disabled={itemBusy || items.length <= 1}
+                      title={items.length <= 1 ? "An order needs at least one item — void it instead" : "Cancel this item and adjust the invoice"}
+                      onClick={() => cancelApprovedItem(it.id, it.description)}>Cancel item</button>
+                  </td>
+                )}
               </tr>
             ))}
             {discountAmount > 0 && (
               <tr>
                 <td className="dim">Discount</td><td /><td />
-                <td className="num right dim">−{peso(discountAmount)}</td>{order.status === "pending" && <td />}
+                <td className="num right dim">−{peso(discountAmount)}</td>
+                {(order.status === "pending" || order.status === "approved") && <td />}
               </tr>
             )}
-            <tr><td className="strong">Total</td><td /><td /><td className="num right strong">{peso(total)}</td>{order.status === "pending" && <td />}</tr>
+            <tr>
+              <td className="strong">Total</td><td /><td /><td className="num right strong">{peso(total)}</td>
+              {(order.status === "pending" || order.status === "approved") && <td />}
+            </tr>
           </tbody>
         </table>
       </Card>
