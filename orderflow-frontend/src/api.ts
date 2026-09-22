@@ -26,9 +26,12 @@ export const clearSession = () => {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** The parsed JSON error body, if any — e.g. { matches: [...] } for a flagged duplicate. */
+  body: any;
+  constructor(status: number, message: string, body?: any) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -43,7 +46,7 @@ const request = async <T>(path: string, opts: RequestInit = {}, auth = true): Pr
     throw new ApiError(401, "Sign in required");
   }
   const body = res.status === 204 ? null : await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, body?.error || `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, body?.error || `Request failed (${res.status})`, body);
   return body as T;
 };
 

@@ -162,16 +162,92 @@ const ClientBody = z.object({
   tin: z.string().min(1, "TIN is required"),
   consolidated_invoicing: z.boolean().optional(),
   collects_in_person: z.boolean().optional(),
+  // Set once the caller has seen findDuplicateClients' warning and wants to
+  // create the record anyway (e.g. a legitimate second branch of the same
+  // company, sharing one TIN).
+  confirm_duplicate: z.boolean().optional(),
 });
+
+const digitsOnly = (s: string) => s.replace(/\D/g, "");
+
+/**
+ * Best-effort duplicate detection for a new client: exact (normalized)
+ * matches on company name, email, phone, or TIN against the existing
+ * directory. TIN is encrypted at rest, so that comparison decrypts and
+ * compares in application code rather than in SQL — fine at this business's
+ * scale, but would need a searchable hash column if the directory ever grew
+ * large enough for a full scan per client creation to matter.
+ *
+ * The response stays minimal (id + company name + which fields matched)
+ * regardless of caller role, so an agent flagging a possible duplicate never
+ * sees another client's full contact details — same privacy boundary
+ * clientScopeSql enforces everywhere else (GET /clients, etc.), just phrased
+ * as "already exists" rather than exposing the other client's record.
+ */
+const findDuplicateClients = async (input: {
+  companyName: string;
+  email?: string | null;
+  phone?: string | null;
+  tin?: string | null;
+}): Promise<{ id: string; company_name: string; reasons: string[] }[]> => {
+  const matches = new Map<string, { id: string; company_name: string; reasons: string[] }>();
+  const addMatch = (id: string, companyName: string, reason: string) => {
+    const existing = matches.get(id);
+    if (existing) existing.reasons.push(reason);
+    else matches.set(id, { id, company_name: companyName, reasons: [reason] });
+  };
+
+  const normalizedName = input.companyName.trim().toLowerCase().replace(/\s+/g, " ");
+  const normalizedEmail = input.email ? input.email.trim().toLowerCase() : "";
+  const normalizedPhone = input.phone ? digitsOnly(input.phone) : "";
+
+  const rows = await q<{ id: string; company_name: string; email: string | null; phone: string | null }>(
+    `SELECT id, company_name, email, phone FROM clients
+      WHERE lower(trim(company_name)) = $1
+         OR ($2 != '' AND email IS NOT NULL AND email::text ILIKE $2)
+         OR ($3 != '' AND regexp_replace(coalesce(phone, ''), '\\D', '', 'g') = $3)`,
+    [normalizedName, normalizedEmail, normalizedPhone]
+  );
+  for (const row of rows) {
+    if (row.company_name.trim().toLowerCase().replace(/\s+/g, " ") === normalizedName) addMatch(row.id, row.company_name, "company_name");
+    if (normalizedEmail && row.email && row.email.toLowerCase() === normalizedEmail) addMatch(row.id, row.company_name, "email");
+    if (normalizedPhone && row.phone && digitsOnly(row.phone) === normalizedPhone) addMatch(row.id, row.company_name, "phone");
+  }
+
+  const normalizedTin = input.tin ? digitsOnly(input.tin) : "";
+  if (normalizedTin) {
+    const tinRows = await q<{ id: string; company_name: string; tin: string | null }>(
+      "SELECT id, company_name, tin FROM clients WHERE tin IS NOT NULL"
+    );
+    for (const row of tinRows) {
+      if (row.tin && digitsOnly(decryptField(row.tin)) === normalizedTin) addMatch(row.id, row.company_name, "tin");
+    }
+  }
+
+  return [...matches.values()];
+};
 
 /**
  * POST /clients — creates a customer record.
  * Admin: can assign to any agent (or leave unassigned). Agent: always assigned to themselves.
+ *
+ * Before inserting, flags a likely duplicate (same company name, email,
+ * phone, or TIN as an existing client) with a 409 rather than silently
+ * creating a second record — both agents and admin hit this the same way,
+ * since NewClientForm is shared across their "New client" screens. The
+ * caller resubmits with confirm_duplicate to proceed anyway.
  */
 clientsRouter.post("/", async (req, res) => {
   const parsed = ClientBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const b = parsed.data;
+
+  if (!b.confirm_duplicate) {
+    const matches = await findDuplicateClients({ companyName: b.company_name, email: b.email, phone: b.phone, tin: b.tin });
+    if (matches.length)
+      return res.status(409).json({ error: "This looks like it might already be in the directory.", matches });
+  }
+
   const agentId = req.user!.role === "admin" ? (b.agent_id ?? null) : req.user!.id;
   const row = await one(
     `INSERT INTO clients (company_name, contact_name, email, phone, address, agent_id, notes, payment_terms, vat_status, extra_emails, tin, consolidated_invoicing, collects_in_person)

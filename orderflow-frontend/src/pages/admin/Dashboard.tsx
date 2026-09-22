@@ -1,31 +1,75 @@
+import { useState } from "react";
 import { api, fmtDate, peso } from "../../api";
 import { Card, ErrorBox, InvoiceChip, Loading, useData } from "../../components";
 
+type FilterKey = "overdue" | "due_soon" | "receipts" | "no_email" | "manual_collection";
+
+/** Mirrors the exact predicates dashboard.ts used to compute each summary count. */
+const matchesFilter = (i: any, key: FilterKey | null, dueSoonWindowDays: number): boolean => {
+  switch (key) {
+    case "overdue": return i.is_overdue;
+    case "due_soon": return !i.is_overdue && i.status === "unpaid" && i.days_until_due <= dueSoonWindowDays;
+    case "receipts": return i.status === "receipt_uploaded";
+    case "no_email": return !i.has_email;
+    case "manual_collection": return i.collects_in_person;
+    default: return true;
+  }
+};
+
 export default function Dashboard() {
   const { data, error, loading } = useData<any>(() => api.get("/dashboard/payments-due"), []);
+  const [filter, setFilter] = useState<FilterKey | null>(null);
+  const toggle = (key: FilterKey) => setFilter((f) => (f === key ? null : key));
+
+  const FILTER_LABELS: Record<FilterKey, string> = {
+    overdue: "Overdue",
+    due_soon: `Due within ${data?.summary.due_soon_window_days ?? ""} days`,
+    receipts: "Receipts to verify",
+    no_email: "Needs manual reminder",
+    manual_collection: "Check/in-person collection",
+  };
+
+  const filteredInvoices = data ? data.invoices.filter((i: any) => matchesFilter(i, filter, data.summary.due_soon_window_days)) : [];
+  const statClass = (key: FilterKey | null) => `stat clickable${filter === key ? " active" : ""}`;
 
   return (
     <>
       <h1 className="page">Payment-due dashboard</h1>
-      <p className="pagesub">Customers with payments coming due or already overdue.</p>
+      <p className="pagesub">Customers with payments coming due or already overdue. Click a box to filter the list below.</p>
       {error && <ErrorBox msg={error} />}
       {loading ? <Loading /> : data && (
         <>
           <div className="statgrid">
-            <div className="stat"><div className="k">Overdue</div><div className="v red">{data.summary.overdue_count}</div></div>
-            <div className="stat"><div className="k">Due within {data.summary.due_soon_window_days} days</div><div className="v amber">{data.summary.due_soon_count}</div></div>
-            <div className="stat"><div className="k">Outstanding total</div><div className="v">{peso(data.summary.outstanding_total)}</div></div>
-            <div className="stat"><div className="k">Receipts to verify</div><div className="v green">{data.summary.receipts_to_verify}</div></div>
-            <div className="stat"><div className="k">Needs manual reminder</div><div className="v amber">{data.summary.no_email_count}</div></div>
-            <div className="stat"><div className="k">Check/in-person collection</div><div className="v amber">{data.summary.manual_collection_count}</div></div>
+            <div className={statClass("overdue")} onClick={() => toggle("overdue")}>
+              <div className="k">Overdue</div><div className="v red">{data.summary.overdue_count}</div>
+            </div>
+            <div className={statClass("due_soon")} onClick={() => toggle("due_soon")}>
+              <div className="k">Due within {data.summary.due_soon_window_days} days</div><div className="v amber">{data.summary.due_soon_count}</div>
+            </div>
+            <div className={statClass(null)} onClick={() => setFilter(null)} title="Show every open invoice">
+              <div className="k">Outstanding total</div><div className="v">{peso(data.summary.outstanding_total)}</div>
+            </div>
+            <div className={statClass("receipts")} onClick={() => toggle("receipts")}>
+              <div className="k">Receipts to verify</div><div className="v green">{data.summary.receipts_to_verify}</div>
+            </div>
+            <div className={statClass("no_email")} onClick={() => toggle("no_email")}>
+              <div className="k">Needs manual reminder</div><div className="v amber">{data.summary.no_email_count}</div>
+            </div>
+            <div className={statClass("manual_collection")} onClick={() => toggle("manual_collection")}>
+              <div className="k">Check/in-person collection</div><div className="v amber">{data.summary.manual_collection_count}</div>
+            </div>
           </div>
-          <Card title="Open invoices" hint="soonest due first" pad={false}>
+          <Card
+            title={filter ? `Open invoices — ${FILTER_LABELS[filter]}` : "Open invoices"}
+            hint={filter ? `${filteredInvoices.length} shown — click the box again, or "Outstanding total," to clear` : "soonest due first"}
+            pad={false}
+          >
             <table className="ledger">
               <thead>
                 <tr><th>Invoice</th><th>Client</th><th className="right">Balance due</th><th>Due</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {data.invoices.map((i: any) => (
+                {filteredInvoices.map((i: any) => (
                   <tr key={i.id}>
                     <td className="num strong">{i.invoice_no}</td>
                     <td>
@@ -46,7 +90,9 @@ export default function Dashboard() {
                     <td><InvoiceChip inv={i} /></td>
                   </tr>
                 ))}
-                {!data.invoices.length && <tr><td colSpan={5} className="empty">Nothing outstanding. All invoices are settled.</td></tr>}
+                {!filteredInvoices.length && (
+                  <tr><td colSpan={5} className="empty">{filter ? "No invoices match this filter." : "Nothing outstanding. All invoices are settled."}</td></tr>
+                )}
               </tbody>
             </table>
           </Card>

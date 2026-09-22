@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { api, daysUntil } from "./api";
+import { api, ApiError, daysUntil } from "./api";
 
 /* ---- Card ---- */
 export function Card({ title, hint, pad = true, children }: {
@@ -161,6 +161,14 @@ export const VAT_STATUS_OPTIONS = [
 const parseEmailList = (raw: string): string[] =>
   raw.split(/[\n,]+/).map((e) => e.trim()).filter(Boolean);
 
+/** Human labels for POST /clients' 409 duplicate-match reasons. */
+const DUPLICATE_REASON_LABELS: Record<string, string> = {
+  company_name: "company name",
+  email: "email",
+  phone: "phone",
+  tin: "TIN",
+};
+
 /* ---- new client form (admin: can assign an agent; agent: auto-assigned to self) ---- */
 export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_name: string }[]; onDone: () => void }) {
   const [companyName, setCompanyName] = useState("");
@@ -178,7 +186,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
-  const submit = async () => {
+  const submit = async (confirmDuplicate = false) => {
     setBusy(true);
     try {
       await api.post("/clients", {
@@ -193,11 +201,22 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
         tin: tin.trim(),
         consolidated_invoicing: consolidatedInvoicing,
         collects_in_person: collectsInPerson,
+        confirm_duplicate: confirmDuplicate,
         ...(agents ? { agent_id: agentId || null } : {}),
       });
       toast(`${companyName} added to the directory.`);
       onDone();
     } catch (e: any) {
+      const matches = e instanceof ApiError && e.status === 409 ? e.body?.matches : undefined;
+      if (matches?.length) {
+        const names = [...new Set(matches.map((m: any) => m.company_name))].join(", ");
+        const reasons = [...new Set(matches.flatMap((m: any) => m.reasons.map((r: string) => DUPLICATE_REASON_LABELS[r] || r)))].join(", ");
+        if (window.confirm(`This looks like it might already be in the directory — matching ${reasons} with: ${names}.\n\nAdd it anyway?`)) {
+          await submit(true); // recurses once; its own finally covers busy state
+          return;
+        }
+        return;
+      }
       toast(e.message, true);
     } finally {
       setBusy(false);
@@ -250,7 +269,7 @@ export function NewClientForm({ agents, onDone }: { agents?: { id: string; full_
           </select>
         </>
       )}
-      <button className="btn" disabled={!valid || busy} onClick={submit} style={{ marginTop: 12 }}>
+      <button className="btn" disabled={!valid || busy} onClick={() => submit()} style={{ marginTop: 12 }}>
         {busy ? "Adding…" : "Add client"}
       </button>
     </Card>
