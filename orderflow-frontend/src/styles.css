@@ -6,6 +6,7 @@
   --green:#1E6E52; --green-bg:#E7F1EC;
   --red:#B3402F; --red-bg:#F8E9E5;
   --amber:#9A6B0B; --amber-bg:#F7EFD9;
+  --orange:#B5560D; --orange-bg:#FBE9DA;
   --blue:#31518F; --blue-bg:#E8EDF7;
   --sans:'IBM Plex Sans',system-ui,sans-serif;
   --mono:'IBM Plex Mono',ui-monospace,monospace;
@@ -53,6 +54,7 @@ table.ledger{width:100%;border-collapse:collapse}
 .chip.green{color:var(--green);background:var(--green-bg)}
 .chip.red{color:var(--red);background:var(--red-bg)}
 .chip.amber{color:var(--amber);background:var(--amber-bg)}
+.chip.orange{color:var(--orange);background:var(--orange-bg)}
 .chip.blue{color:var(--blue);background:var(--blue-bg)}
 .chip.gray{color:var(--ink2);background:#EFEEE7}
 .stamp{display:inline-block;font-family:var(--cond);font-weight:700;font-size:20px;letter-spacing:.14em;text-transform:uppercase;padding:4px 14px;border:3px solid currentColor;transform:rotate(-4deg);opacity:.9}

@@ -31,7 +31,7 @@ export default function Dashboard() {
     receipts: "Receipts to verify",
     no_email: "Needs manual reminder",
     manual_collection: "Check/in-person collection",
-    missing_2307: "Missing 2307",
+    missing_2307: "Lacking 2307",
   };
 
   const filteredInvoices = data ? data.invoices.filter((i: any) => matchesFilter(i, filter, data.summary.due_soon_window_days)) : [];
@@ -64,7 +64,7 @@ export default function Dashboard() {
               <div className="k">Check/in-person collection</div><div className="v amber">{data.summary.manual_collection_count}</div>
             </div>
             <div className={statClass("missing_2307")} onClick={() => toggle("missing_2307")}>
-              <div className="k">Missing 2307</div><div className="v amber">{data.summary.missing_2307_count}</div>
+              <div className="k">Lacking 2307</div><div className="v amber">{data.summary.missing_2307_count}</div>
             </div>
           </div>
           <Card
@@ -84,7 +84,7 @@ export default function Dashboard() {
                       {i.company_name}
                       {!i.has_email && <span className="chip amber" style={{ marginLeft: 8 }}>No email</span>}
                       {i.collects_in_person && <span className="chip amber" style={{ marginLeft: 8 }}>Check/in-person</span>}
-                      {missing2307(i) && <span className="chip amber" style={{ marginLeft: 8 }}>No 2307</span>}
+                      {missing2307(i) && <span className="chip orange" style={{ marginLeft: 8 }}>No 2307</span>}
                       <div className="dim">{i.contact_name}</div>
                     </td>
                     <td className="num right">{peso(i.balance_due)}</td>
