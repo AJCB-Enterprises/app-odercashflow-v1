@@ -2,7 +2,10 @@ import { useState } from "react";
 import { api, fmtDate, peso } from "../../api";
 import { Card, ErrorBox, InvoiceChip, Loading, useData } from "../../components";
 
-type FilterKey = "overdue" | "due_soon" | "receipts" | "no_email" | "manual_collection";
+type FilterKey = "overdue" | "due_soon" | "receipts" | "no_email" | "manual_collection" | "missing_2307";
+
+/** EWT was actually withheld on a payment against this invoice, but no BIR Form 2307 is on file yet. */
+const missing2307 = (i: any) => Number(i.total_ewt) > 0 && !i.ewt_name;
 
 /** Mirrors the exact predicates dashboard.ts used to compute each summary count. */
 const matchesFilter = (i: any, key: FilterKey | null, dueSoonWindowDays: number): boolean => {
@@ -12,6 +15,7 @@ const matchesFilter = (i: any, key: FilterKey | null, dueSoonWindowDays: number)
     case "receipts": return i.status === "receipt_uploaded";
     case "no_email": return !i.has_email;
     case "manual_collection": return i.collects_in_person;
+    case "missing_2307": return missing2307(i);
     default: return true;
   }
 };
@@ -27,6 +31,7 @@ export default function Dashboard() {
     receipts: "Receipts to verify",
     no_email: "Needs manual reminder",
     manual_collection: "Check/in-person collection",
+    missing_2307: "Missing 2307",
   };
 
   const filteredInvoices = data ? data.invoices.filter((i: any) => matchesFilter(i, filter, data.summary.due_soon_window_days)) : [];
@@ -58,6 +63,9 @@ export default function Dashboard() {
             <div className={statClass("manual_collection")} onClick={() => toggle("manual_collection")}>
               <div className="k">Check/in-person collection</div><div className="v amber">{data.summary.manual_collection_count}</div>
             </div>
+            <div className={statClass("missing_2307")} onClick={() => toggle("missing_2307")}>
+              <div className="k">Missing 2307</div><div className="v amber">{data.summary.missing_2307_count}</div>
+            </div>
           </div>
           <Card
             title={filter ? `Open invoices — ${FILTER_LABELS[filter]}` : "Open invoices"}
@@ -76,6 +84,7 @@ export default function Dashboard() {
                       {i.company_name}
                       {!i.has_email && <span className="chip amber" style={{ marginLeft: 8 }}>No email</span>}
                       {i.collects_in_person && <span className="chip amber" style={{ marginLeft: 8 }}>Check/in-person</span>}
+                      {missing2307(i) && <span className="chip amber" style={{ marginLeft: 8 }}>No 2307</span>}
                       <div className="dim">{i.contact_name}</div>
                     </td>
                     <td className="num right">{peso(i.balance_due)}</td>

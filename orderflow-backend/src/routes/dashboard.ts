@@ -23,10 +23,11 @@ dashboardRouter.get("/payments-due", async (req, res) => {
   if (scope.param) params.push(scope.param);
 
   const rows = await q(
-    `SELECT i.id, i.invoice_no, i.amount, i.due_date, i.status,
+    `SELECT i.id, i.invoice_no, i.amount, i.due_date, i.status, i.ewt_name,
             (i.status = 'unpaid' AND i.due_date < CURRENT_DATE) AS is_overdue,
             (i.due_date - CURRENT_DATE) AS days_until_due,
             (i.amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = i.id), 0)) AS balance_due,
+            COALESCE((SELECT SUM(ewt_amount) FROM invoice_payments WHERE invoice_id = i.id), 0) AS total_ewt,
             c.id AS client_id, c.company_name, c.contact_name, c.email, c.collects_in_person,
             (c.email IS NOT NULL OR cardinality(c.extra_emails) > 0) AS has_email
        FROM invoices i
@@ -38,6 +39,9 @@ dashboardRouter.get("/payments-due", async (req, res) => {
 
   const overdue = rows.filter((r: any) => r.is_overdue);
   const dueSoon = rows.filter((r: any) => !r.is_overdue && r.status === "unpaid" && r.days_until_due <= daysBefore);
+  // EWT was actually withheld on a payment against this invoice, but no BIR
+  // Form 2307 substantiating it is on file yet.
+  const missing2307 = rows.filter((r: any) => Number(r.total_ewt) > 0 && !r.ewt_name);
   res.json({
     summary: {
       overdue_count: overdue.length,
@@ -47,6 +51,7 @@ dashboardRouter.get("/payments-due", async (req, res) => {
       outstanding_total: rows.reduce((s: number, r: any) => s + Number(r.balance_due), 0),
       no_email_count: rows.filter((r: any) => !r.has_email).length,
       manual_collection_count: rows.filter((r: any) => r.collects_in_person).length,
+      missing_2307_count: missing2307.length,
     },
     invoices: rows,
   });

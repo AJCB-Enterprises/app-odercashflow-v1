@@ -171,4 +171,55 @@ describe("POST /invoices/:id/payments", () => {
 
     expect(res.status).toBe(403);
   });
+
+  it("records a Collection Receipt number for an in-person payment", async () => {
+    const { token } = await asAdmin();
+    const client = await createClientRow({ collectsInPerson: true });
+    const invoice = await createInvoice({ clientId: client.id, amount: 1000 });
+
+    const res = await request(app)
+      .post(`/invoices/${invoice.id}/payments`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount_received: 1000, collection_receipt_no: "CR-2026-0001" });
+
+    expect(res.status).toBe(200);
+    const { rows } = await pool.query(
+      "SELECT collection_receipt_no FROM invoice_payments WHERE invoice_id = $1",
+      [invoice.id]
+    );
+    expect(rows[0].collection_receipt_no).toBe("CR-2026-0001");
+  });
+
+  it("does not require a Collection Receipt number", async () => {
+    const { token } = await asAdmin();
+    const client = await createClientRow();
+    const invoice = await createInvoice({ clientId: client.id, amount: 1000 });
+
+    const res = await request(app)
+      .post(`/invoices/${invoice.id}/payments`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount_received: 1000 });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a duplicate Collection Receipt number across different invoices", async () => {
+    const { token } = await asAdmin();
+    const client = await createClientRow();
+    const invoiceA = await createInvoice({ clientId: client.id, amount: 500 });
+    const invoiceB = await createInvoice({ clientId: client.id, amount: 500 });
+
+    const first = await request(app)
+      .post(`/invoices/${invoiceA.id}/payments`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount_received: 500, collection_receipt_no: "CR-2026-0002" });
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .post(`/invoices/${invoiceB.id}/payments`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount_received: 500, collection_receipt_no: "CR-2026-0002" });
+
+    expect(second.status).toBe(409);
+  });
 });

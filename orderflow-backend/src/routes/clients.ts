@@ -104,6 +104,9 @@ clientsRouter.get("/:id", async (req, res) => {
               COALESCE((SELECT SUM(ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0) AS total_ewt,
               COALESCE((SELECT SUM(discount_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0) AS total_discount,
               (SELECT original_name FROM receipts WHERE invoice_id = invoices.id ORDER BY uploaded_at DESC LIMIT 1) AS receipt_name,
+              (SELECT collection_receipt_no FROM invoice_payments
+                WHERE invoice_id = invoices.id AND collection_receipt_no IS NOT NULL
+                ORDER BY verified_at DESC LIMIT 1) AS collection_receipt_no,
               (SELECT json_agg(json_build_object('order_no', o.order_no, 'po_number', o.po_number, 'dr_no', o.dr_no) ORDER BY o.order_no)
                  FROM invoice_orders io JOIN orders o ON o.id = io.order_id WHERE io.invoice_id = invoices.id) AS covered_orders
          FROM invoices WHERE client_id = $1 ORDER BY due_date DESC`,

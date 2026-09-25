@@ -10,6 +10,7 @@ export default function Receipts() {
   const [amountReceived, setAmountReceived] = useState("");
   const [ewtAmount, setEwtAmount] = useState("");
   const [discountAmount, setDiscountAmount] = useState("");
+  const [crNo, setCrNo] = useState("");
   const [busy, setBusy] = useState(false);
 
   const view = async (invoiceId: string) => {
@@ -33,6 +34,7 @@ export default function Receipts() {
     setAmountReceived(String(i.balance_due));
     setEwtAmount("0");
     setDiscountAmount("0");
+    setCrNo("");
   };
 
   const confirmPayment = async (invoiceId: string, invoiceNo: string) => {
@@ -42,6 +44,7 @@ export default function Receipts() {
         amount_received: Number(amountReceived) || 0,
         ewt_amount: Number(ewtAmount) || 0,
         discount_amount: Number(discountAmount) || 0,
+        ...(crNo.trim() ? { collection_receipt_no: crNo.trim() } : {}),
       });
       toast(
         res.fully_paid
@@ -63,16 +66,17 @@ export default function Receipts() {
       <p className="pagesub">
         Record payments as they come in — verify a client's uploaded receipt against your bank records,
         or record one collected in person (check payment, cash, etc). Enter what actually came in —
-        including any BIR EWT withheld (per the client's Form 2307) and any discount granted at
-        settlement. An invoice only closes out once the balance reaches zero; a short payment stays open
-        for the remainder and keeps sending reminders automatically.
+        including any BIR EWT withheld (per the client's Form 2307), any discount granted at settlement,
+        and — for a payment collected in person — the Collection Receipt (CR) number issued for it. An
+        invoice only closes out once the balance reaches zero; a short payment stays open for the
+        remainder and keeps sending reminders automatically.
       </p>
       {error && <ErrorBox msg={error} />}
       <Card pad={false}>
         {loading ? <Loading /> : (
           <table className="ledger">
             <thead>
-              <tr><th>Invoice</th><th>Client</th><th className="right">Balance due</th><th>Receipt file</th><th>Uploaded</th><th /></tr>
+              <tr><th>Invoice</th><th>Client</th><th className="right">Balance due</th><th>Receipt file</th><th>CR #</th><th>Uploaded</th><th /></tr>
             </thead>
             <tbody>
               {(data || []).map((i) => (
@@ -84,6 +88,7 @@ export default function Receipts() {
                   </td>
                   <td className="num right">{peso(i.balance_due)}</td>
                   <td className="num">{i.receipt_name || <span className="dim">No receipt uploaded</span>}</td>
+                  <td className="num">{i.collection_receipt_no || <span className="dim">—</span>}</td>
                   <td className="num">{i.receipt_uploaded_at ? fmtTime(i.receipt_uploaded_at) : "—"}</td>
                   <td className="right" style={{ whiteSpace: "nowrap" }}>
                     {i.receipt_name && (
@@ -97,16 +102,27 @@ export default function Receipts() {
                       </>
                     )}
                     {recording === i.id ? (
-                      <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                        <input className="f num" style={{ width: 100 }} type="number" min={0} step="0.01"
-                          placeholder="Received" value={amountReceived}
-                          onChange={(e) => setAmountReceived(e.target.value)} />
-                        <input className="f num" style={{ width: 90 }} type="number" min={0} step="0.01"
-                          placeholder="EWT" value={ewtAmount}
-                          onChange={(e) => setEwtAmount(e.target.value)} />
-                        <input className="f num" style={{ width: 90 }} type="number" min={0} step="0.01"
-                          placeholder="Discount" value={discountAmount}
-                          onChange={(e) => setDiscountAmount(e.target.value)} />
+                      <span style={{ display: "inline-flex", gap: 6, alignItems: "flex-end" }}>
+                        <span className="inputgroup">
+                          <span className="lbl">Received</span>
+                          <input className="f num" style={{ width: 100, marginBottom: 0 }} type="number" min={0} step="0.01"
+                            value={amountReceived} onChange={(e) => setAmountReceived(e.target.value)} />
+                        </span>
+                        <span className="inputgroup">
+                          <span className="lbl">EWT</span>
+                          <input className="f num" style={{ width: 90, marginBottom: 0 }} type="number" min={0} step="0.01"
+                            value={ewtAmount} onChange={(e) => setEwtAmount(e.target.value)} />
+                        </span>
+                        <span className="inputgroup">
+                          <span className="lbl">Discount</span>
+                          <input className="f num" style={{ width: 90, marginBottom: 0 }} type="number" min={0} step="0.01"
+                            value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} />
+                        </span>
+                        <span className="inputgroup">
+                          <span className="lbl">CR # (optional)</span>
+                          <input className="f" style={{ width: 130, marginBottom: 0 }} type="text"
+                            placeholder="e.g. CR-2026-0001" value={crNo} onChange={(e) => setCrNo(e.target.value)} />
+                        </span>
                         <button className="btn sm green" disabled={busy} onClick={() => confirmPayment(i.id, i.invoice_no)}>
                           {busy ? "Saving…" : "Confirm"}
                         </button>
@@ -118,7 +134,7 @@ export default function Receipts() {
                   </td>
                 </tr>
               ))}
-              {!data?.length && <tr><td colSpan={6} className="empty">Nothing outstanding right now.</td></tr>}
+              {!data?.length && <tr><td colSpan={7} className="empty">Nothing outstanding right now.</td></tr>}
             </tbody>
           </table>
         )}

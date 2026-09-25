@@ -303,6 +303,9 @@ export function ClientDetail() {
                   {i.ewt_name && (
                     <div className="dim" style={{ fontSize: 12.5 }}>2307 on file</div>
                   )}
+                  {i.collection_receipt_no && (
+                    <div className="dim" style={{ fontSize: 12.5 }}>CR {i.collection_receipt_no}</div>
+                  )}
                   {i.covered_orders && (
                     <div className="dim" style={{ fontSize: 12.5 }}>
                       Covers: {i.covered_orders.map((o: any) => o.dr_no ? `${o.order_no} (DR ${o.dr_no})` : o.order_no).join(", ")}

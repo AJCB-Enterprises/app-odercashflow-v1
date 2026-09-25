@@ -81,6 +81,9 @@ table.ledger{width:100%;border-collapse:collapse}
 label.f{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}
 input.f,select.f,textarea.f{width:100%;font-family:var(--sans);font-size:14px;padding:8px 10px;border:1px solid var(--rule2);background:#FCFBF8;color:var(--ink)}
 textarea.f{resize:vertical}
+/* A labeled input compact enough to sit inline in a table row — e.g. the Payments page's Received/EWT/Discount/CR # fields. */
+.inputgroup{display:inline-flex;flex-direction:column;gap:2px}
+.inputgroup .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
 .statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:18px}
 .stat{background:var(--card);border:1px solid var(--rule2);padding:14px 16px;min-width:0}

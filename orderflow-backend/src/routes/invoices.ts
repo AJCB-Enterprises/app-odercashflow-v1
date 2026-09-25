@@ -56,13 +56,19 @@ invoicesRouter.get("/", requireAgentPermission("can_view_invoices"), async (req,
             ${TOTAL_DISCOUNT_SQL} AS total_discount,
             i.ewt_name,
             c.id AS client_id, c.company_name, c.collects_in_person,
-            r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at
+            r.id AS receipt_id, r.original_name AS receipt_name, r.uploaded_at AS receipt_uploaded_at,
+            cr.collection_receipt_no
        FROM invoices i
        JOIN clients c ON c.id = i.client_id
        LEFT JOIN LATERAL (
          SELECT id, original_name, uploaded_at FROM receipts
           WHERE invoice_id = i.id ORDER BY uploaded_at DESC LIMIT 1
        ) r ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT collection_receipt_no FROM invoice_payments
+          WHERE invoice_id = i.id AND collection_receipt_no IS NOT NULL
+          ORDER BY verified_at DESC LIMIT 1
+       ) cr ON TRUE
        ${where}${scope.sql}
       ORDER BY i.due_date DESC`,
     params
@@ -164,6 +170,10 @@ const PaymentBody = z.object({
   ewt_amount: z.number().min(0).optional(),
   discount_amount: z.number().min(0).optional(),
   note: z.string().optional(),
+  // The physical Collection Receipt admin issued for an in-person
+  // (check/cash) payment -- an official pre-numbered document, never
+  // required, since most payments come with an uploaded receipt instead.
+  collection_receipt_no: z.string().trim().min(1).optional(),
 });
 
 /**
@@ -186,57 +196,65 @@ invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
   const { amount_received, note } = parsed.data;
   const ewt_amount = parsed.data.ewt_amount ?? 0;
   const discount_amount = parsed.data.discount_amount ?? 0;
+  const crNo = parsed.data.collection_receipt_no || null;
   const user = req.user!;
 
-  const result = await tx(async (c) => {
-    const invRes = await c.query(
-      "SELECT id, invoice_no, amount FROM invoices WHERE id = $1 AND status IN ('unpaid','receipt_uploaded')",
-      [req.params.id]
-    );
-    const inv = invRes.rows[0];
-    if (!inv) return null;
-
-    const receipt = await one("SELECT id FROM receipts WHERE invoice_id = $1 ORDER BY uploaded_at DESC LIMIT 1", [
-      inv.id,
-    ]);
-    await c.query(
-      `INSERT INTO invoice_payments (invoice_id, receipt_id, amount_received, ewt_amount, discount_amount, verified_by, note)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [inv.id, receipt?.id ?? null, amount_received, ewt_amount, discount_amount, user.id, note ?? null]
-    );
-    await c.query(
-      `UPDATE receipts SET verified_by = $2, verified_at = now()
-        WHERE invoice_id = $1 AND verified_at IS NULL`,
-      [inv.id, user.id]
-    );
-
-    const balanceRes = await c.query(
-      `SELECT ${BALANCE_DUE_SQL} AS balance_due FROM invoices i WHERE i.id = $1`,
-      [inv.id]
-    );
-    const balanceDue = Number(balanceRes.rows[0].balance_due);
-    const fullyPaid = balanceDue <= BALANCE_TOLERANCE;
-
-    const updRes = await c.query(
-      `UPDATE invoices SET status = $2, paid_at = $3 WHERE id = $1 RETURNING *`,
-      [inv.id, fullyPaid ? "paid" : "unpaid", fullyPaid ? new Date() : null]
-    );
-
-    if (fullyPaid) {
-      await revokeInvoiceTokens(inv.id, c, "receipt");
-      await audit(user.id, "invoice.marked_paid", "invoice", inv.id, { invoice_no: inv.invoice_no }, c);
-    } else {
-      await audit(
-        user.id,
-        "invoice.payment_recorded",
-        "invoice",
-        inv.id,
-        { invoice_no: inv.invoice_no, amount_received, ewt_amount, discount_amount, balance_due: balanceDue },
-        c
+  let result: { invoice: any; balance_due: number; fully_paid: boolean } | null;
+  try {
+    result = await tx(async (c) => {
+      const invRes = await c.query(
+        "SELECT id, invoice_no, amount FROM invoices WHERE id = $1 AND status IN ('unpaid','receipt_uploaded')",
+        [req.params.id]
       );
-    }
-    return { invoice: updRes.rows[0], balance_due: balanceDue, fully_paid: fullyPaid };
-  });
+      const inv = invRes.rows[0];
+      if (!inv) return null;
+
+      const receipt = await one("SELECT id FROM receipts WHERE invoice_id = $1 ORDER BY uploaded_at DESC LIMIT 1", [
+        inv.id,
+      ]);
+      await c.query(
+        `INSERT INTO invoice_payments (invoice_id, receipt_id, amount_received, ewt_amount, discount_amount, verified_by, note, collection_receipt_no)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [inv.id, receipt?.id ?? null, amount_received, ewt_amount, discount_amount, user.id, note ?? null, crNo]
+      );
+      await c.query(
+        `UPDATE receipts SET verified_by = $2, verified_at = now()
+          WHERE invoice_id = $1 AND verified_at IS NULL`,
+        [inv.id, user.id]
+      );
+
+      const balanceRes = await c.query(
+        `SELECT ${BALANCE_DUE_SQL} AS balance_due FROM invoices i WHERE i.id = $1`,
+        [inv.id]
+      );
+      const balanceDue = Number(balanceRes.rows[0].balance_due);
+      const fullyPaid = balanceDue <= BALANCE_TOLERANCE;
+
+      const updRes = await c.query(
+        `UPDATE invoices SET status = $2, paid_at = $3 WHERE id = $1 RETURNING *`,
+        [inv.id, fullyPaid ? "paid" : "unpaid", fullyPaid ? new Date() : null]
+      );
+
+      if (fullyPaid) {
+        await revokeInvoiceTokens(inv.id, c, "receipt");
+        await audit(user.id, "invoice.marked_paid", "invoice", inv.id, { invoice_no: inv.invoice_no }, c);
+      } else {
+        await audit(
+          user.id,
+          "invoice.payment_recorded",
+          "invoice",
+          inv.id,
+          { invoice_no: inv.invoice_no, amount_received, ewt_amount, discount_amount, collection_receipt_no: crNo, balance_due: balanceDue },
+          c
+        );
+      }
+      return { invoice: updRes.rows[0], balance_due: balanceDue, fully_paid: fullyPaid };
+    });
+  } catch (err: any) {
+    if (err?.code === "23505" && err.constraint === "idx_invoice_payments_cr_no_unique")
+      return res.status(409).json({ error: `Collection Receipt ${crNo} is already in use` });
+    throw err;
+  }
 
   if (!result) return res.status(409).json({ error: "Invoice is already paid or void" });
   res.json(result);
