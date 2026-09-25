@@ -16,7 +16,7 @@ export default function Login() {
     try {
       const res = await api.post<{ token: string; user: any }>("/auth/login", { email, password }, false);
       setSession(res.token, res.user);
-      navigate(res.user.role === "admin" ? "/admin/dashboard" : "/agent/clients");
+      navigate(res.user.role === "admin" ? "/admin/dashboard" : "/agent/dashboard");
     } catch (err: any) {
       setError(err.message);
     } finally {
