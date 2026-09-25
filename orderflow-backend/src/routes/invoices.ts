@@ -1,15 +1,34 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { one, q, tx } from "../db";
 import { clientScopeSql, requireAdmin, requireAgentPermission, requireAuth } from "../middleware/auth";
 import { ewtUploadUrl, issueUploadToken, revokeInvoiceTokens } from "../lib/tokens";
 import { audit } from "../lib/notify";
 import { clientEmails, sendMail } from "../lib/email";
-import { readEwtForm, readReceipt } from "../lib/storage";
+import { readEwtForm, readReceipt, saveEwtForm, sanitizeFilename, validateUpload } from "../lib/storage";
 import { resendReminderForInvoice } from "../worker/reminders";
+import { config } from "../config";
 
 export const invoicesRouter = Router();
 invoicesRouter.use(requireAuth);
+
+const uploadEwt = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
+});
+
+/** Shared with public.ts's client-facing /e/:token upload — same columns, same shape. */
+const setInvoiceEwt = (
+  invoiceId: string,
+  ewt: { key: string; name: string; mime: string; size: number },
+  c: { query: (sql: string, params: any[]) => Promise<any> }
+) =>
+  c.query(
+    `UPDATE invoices SET ewt_key = $2, ewt_name = $3, ewt_mime = $4, ewt_size_bytes = $5, ewt_submitted_at = now()
+      WHERE id = $1`,
+    [invoiceId, ewt.key, ewt.name, ewt.mime, ewt.size]
+  );
 
 /**
  * What's still owed, computed from the payment ledger rather than stored, so
@@ -145,6 +164,38 @@ invoicesRouter.post("/:id/ewt-link", requireAdmin, async (req, res) => {
   );
   await audit(req.user!.id, "invoice.ewt_link_sent", "invoice", inv.id, { invoice_no: inv.invoice_no });
   res.json({ ok: true, sent_to: recipients });
+});
+
+/**
+ * POST /invoices/:id/ewt — admin uploads the client's BIR Form 2307 directly,
+ * for when it's handed over in person rather than submitted through the
+ * client's own upload link. Same validation and storage as that link (POST
+ * /e/:token in public.ts) — just admin-authenticated instead of
+ * token-authenticated. Allowed on any invoice except void, same as the
+ * client link, since 2307 submission is decoupled from payment status (can
+ * arrive before, with, or after payment). Overwrites whatever was on file.
+ */
+invoicesRouter.post("/:id/ewt", requireAdmin, uploadEwt.single("file"), async (req, res) => {
+  const user = req.user!;
+  const inv = await one<{ id: string; invoice_no: string }>(
+    "SELECT id, invoice_no FROM invoices WHERE id = $1 AND status != 'void'",
+    [req.params.id]
+  );
+  if (!inv) return res.status(404).json({ error: "Invoice not found" });
+  if (!req.file) return res.status(400).json({ error: "Attach the BIR Form 2307 (JPG, PNG, or PDF)" });
+
+  const kind = validateUpload(req.file);
+  if (!kind) return res.status(400).json({ error: "BIR Form 2307 must be a JPG, PNG, or PDF" });
+
+  const ewtKey = await saveEwtForm(inv.id, kind.ext, req.file.buffer);
+  const ewtName = sanitizeFilename(req.file.originalname, `2307.${kind.ext}`);
+
+  await tx(async (c) => {
+    await setInvoiceEwt(inv.id, { key: ewtKey, name: ewtName, mime: kind.mime, size: req.file!.size }, c);
+    await audit(user.id, "ewt.uploaded", "invoice", inv.id, { invoice_no: inv.invoice_no, file: ewtName, via: "admin" }, c);
+  });
+
+  res.status(201).json({ ok: true, ewt_name: ewtName });
 });
 
 /**

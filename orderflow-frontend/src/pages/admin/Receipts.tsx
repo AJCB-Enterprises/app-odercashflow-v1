@@ -12,6 +12,7 @@ export default function Receipts() {
   const [discountAmount, setDiscountAmount] = useState("");
   const [crNo, setCrNo] = useState("");
   const [busy, setBusy] = useState(false);
+  const [ewtBusy, setEwtBusy] = useState<string | null>(null);
 
   const view = async (invoiceId: string) => {
     try {
@@ -26,6 +27,23 @@ export default function Receipts() {
       await api.openBlob(`/invoices/${invoiceId}/receipt/ewt`);
     } catch (e: any) {
       toast(e.message, true);
+    }
+  };
+
+  // For a client who hands over their BIR Form 2307 in person instead of
+  // using their own upload link — admin uploads it directly on their behalf.
+  const uploadEwt = async (invoiceId: string, invoiceNo: string, file: File) => {
+    setEwtBusy(invoiceId);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      await api.postForm(`/invoices/${invoiceId}/ewt`, form);
+      toast(`BIR Form 2307 uploaded for ${invoiceNo}.`);
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setEwtBusy(null);
     }
   };
 
@@ -101,6 +119,11 @@ export default function Receipts() {
                         <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>{" "}
                       </>
                     )}
+                    <label className="btn sm ghost" style={{ display: "inline-block", cursor: ewtBusy === i.id ? "default" : "pointer" }}>
+                      {ewtBusy === i.id ? "Uploading…" : i.ewt_name ? "Replace 2307" : "Upload 2307"}
+                      <input type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ display: "none" }} disabled={ewtBusy === i.id}
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadEwt(i.id, i.invoice_no, f); e.target.value = ""; }} />
+                    </label>{" "}
                     {recording === i.id ? (
                       <span style={{ display: "inline-flex", gap: 6, alignItems: "flex-end" }}>
                         <span className="inputgroup">
