@@ -44,7 +44,6 @@ export default function Shell() {
               <div className="navlabel">Admin console</div>
               <NavItem to="/admin/dashboard" label="Payment-due dashboard" />
               <NavItem to="/admin/orders" label="Order review" />
-              <NavItem to="/admin/quotations" label="Quotations" />
               <NavItem to="/admin/receipts" label="Payments" />
               <NavItem to="/admin/reminders" label="Reminder scheduling" />
               {user.can_manage_agents !== false && <NavItem to="/admin/agents" label="Agent accounts" />}
