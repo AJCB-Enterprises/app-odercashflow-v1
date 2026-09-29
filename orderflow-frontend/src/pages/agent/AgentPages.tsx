@@ -409,6 +409,163 @@ export function AgentOrderDetail() {
   );
 }
 
+/* ---- New quotation ---- */
+const defaultValidUntil = () => new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+
+export function AgentNewQuotation() {
+  const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
+  const [clientId, setClientId] = useState("");
+  const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
+  const [paymentTerms, setPaymentTerms] = useState("net_30");
+  const [vatStatus, setVatStatus] = useState("vat_inclusive");
+  const [validUntil, setValidUntil] = useState(defaultValidUntil);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const navigate = useNavigate();
+
+  const setItem = (i: number, k: string, v: string) =>
+    setItems((its) => its.map((it, j) => (j === i ? { ...it, [k]: v } : it)));
+  const clean = items
+    .filter((it) => it.description.trim() && Number(it.qty) > 0 && Number(it.unit_price) > 0)
+    .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
+  const total = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  const chosen = clientId || clients?.[0]?.id || "";
+  const chosenClient = (clients || []).find((c) => c.id === chosen);
+
+  // Terms/VAT default to the client's own record but, like a Sales Order,
+  // can be changed for this one document — a quotation is just a proposal.
+  useEffect(() => {
+    if (chosenClient) {
+      setPaymentTerms(chosenClient.payment_terms);
+      setVatStatus(chosenClient.vat_status);
+    }
+  }, [chosenClient?.id]);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const res = await api.post<{ quote_no: string; sent: boolean }>("/quotations", {
+        client_id: chosen,
+        items: clean,
+        payment_terms: paymentTerms,
+        vat_status: vatStatus,
+        valid_until: validUntil,
+      });
+      toast(
+        res.sent
+          ? `Quotation ${res.quote_no} emailed to ${chosenClient?.company_name}.`
+          : `Quotation ${res.quote_no} created, but the email couldn't be sent — check the client's email address.`
+      );
+      navigate("/agent/quotations");
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <h1 className="page">New quotation</h1>
+      <p className="pagesub">Draft a price quotation for an assigned client — emailed to them immediately, no admin approval needed.</p>
+      {error && <ErrorBox msg={error} />}
+      {loading ? <Loading /> : (
+        <Card>
+          <label className="f" htmlFor="qc">For client</label>
+          <ClientPicker id="qc" clients={clients || []} value={chosen} onChange={setClientId} />
+          {chosenClient && !chosenClient.email && (chosenClient.extra_emails || []).length === 0 && (
+            <p style={{ marginTop: -6, marginBottom: 14, fontSize: 12.5, color: "var(--red)" }}>
+              This client has no email on file — add one on their record before sending a quotation.
+            </p>
+          )}
+          <label className="f" htmlFor="qt">Payment terms</label>
+          <select id="qt" className="f" style={{ maxWidth: 340 }} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
+            {PAYMENT_TERM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <label className="f" htmlFor="qv">VAT status</label>
+          <select id="qv" className="f" style={{ maxWidth: 340 }} value={vatStatus} onChange={(e) => setVatStatus(e.target.value)}>
+            {VAT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <label className="f" htmlFor="qvu">Valid until</label>
+          <input id="qvu" className="f" type="date" style={{ maxWidth: 340 }} value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+          <label className="f">Line items</label>
+          {items.map((it, i) => (
+            <div className="itemrow" key={i}>
+              <input className="f" placeholder="Item description" value={it.description}
+                onChange={(e) => setItem(i, "description", e.target.value)} aria-label={`Item ${i + 1} description`} />
+              <input className="f num" type="number" min={1} placeholder="Qty" value={it.qty}
+                onChange={(e) => setItem(i, "qty", e.target.value)} aria-label={`Item ${i + 1} quantity`} />
+              <input className="f num" type="number" min={0} step="0.01" placeholder="Unit ₱" value={it.unit_price}
+                onChange={(e) => setItem(i, "unit_price", e.target.value)} aria-label={`Item ${i + 1} unit price`} />
+              <button className="btn sm ghost" disabled={items.length === 1} aria-label={`Remove item ${i + 1}`}
+                onClick={() => setItems((its) => its.filter((_, j) => j !== i))}>×</button>
+            </div>
+          ))}
+          <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>
+            + Add line
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 18 }}>
+            <span className="num strong" style={{ fontSize: 16 }}>Total {peso(total)}</span>
+            <button className="btn" disabled={!chosen || !clean.length || !validUntil || busy} onClick={submit}>
+              {busy ? "Sending…" : "Create & send quotation"}
+            </button>
+          </div>
+        </Card>
+      )}
+    </>
+  );
+}
+
+/* ---- Quotations by client ---- */
+export function AgentQuotations() {
+  const { data, error, loading } = useData<any[]>(() => api.get("/quotations"), []);
+  const byClient = useMemo(() => {
+    const map = new Map<string, any[]>();
+    (data || []).forEach((qt) => {
+      const list = map.get(qt.company_name) || [];
+      list.push(qt);
+      map.set(qt.company_name, list);
+    });
+    return [...map.entries()];
+  }, [data]);
+
+  return (
+    <>
+      <h1 className="page">Quotations by client</h1>
+      <p className="pagesub">Price quotations sent to each of your assigned clients.</p>
+      {error && <ErrorBox msg={error} />}
+      {loading ? <Loading /> : byClient.length ? byClient.map(([name, quotes]) => (
+        <Card key={name} title={name} pad={false}>
+          <table className="ledger">
+            <thead><tr><th>Quote #</th><th className="right">Total</th><th>Terms</th><th>Valid until</th><th>Sent</th></tr></thead>
+            <tbody>
+              {quotes.map((qt) => (
+                <tr key={qt.id}>
+                  <td className="num strong">
+                    {qt.quote_no}
+                    <div className="dim" style={{ fontSize: 12.5 }}>
+                      {(qt.items || []).map((it: any) => it.description).join(", ")}
+                    </div>
+                  </td>
+                  <td className="num right">{peso(qt.total)}</td>
+                  <td>
+                    {PAYMENT_TERM_OPTIONS.find((o) => o.value === qt.payment_terms)?.label || qt.payment_terms}
+                    <div className="dim" style={{ fontSize: 12.5 }}>
+                      {VAT_STATUS_OPTIONS.find((o) => o.value === qt.vat_status)?.label || qt.vat_status}
+                    </div>
+                  </td>
+                  <td className="num">{fmtDate(qt.valid_until)}</td>
+                  <td>{qt.sent_at ? <span className="chip green">Sent</span> : <span className="chip amber">Not sent</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )) : <Card><div className="empty">No quotations yet — create one from "New quotation".</div></Card>}
+    </>
+  );
+}
+
 /* ---- Client past invoices ---- */
 export function AgentInvoices() {
   const { data, error, loading } = useData<any[]>(() => api.get("/invoices"), []);

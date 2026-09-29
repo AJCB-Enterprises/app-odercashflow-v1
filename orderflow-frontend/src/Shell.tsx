@@ -44,6 +44,7 @@ export default function Shell() {
               <div className="navlabel">Admin console</div>
               <NavItem to="/admin/dashboard" label="Payment-due dashboard" />
               <NavItem to="/admin/orders" label="Order review" />
+              <NavItem to="/admin/quotations" label="Quotations" />
               <NavItem to="/admin/receipts" label="Payments" />
               <NavItem to="/admin/reminders" label="Reminder scheduling" />
               {user.can_manage_agents !== false && <NavItem to="/admin/agents" label="Agent accounts" />}
@@ -59,6 +60,8 @@ export default function Shell() {
               <NavItem to="/agent/clients" label="My assigned clients" />
               <NavItem to="/agent/new-order" label="New sales order" />
               <NavItem to="/agent/orders" label="Orders by client" />
+              <NavItem to="/agent/new-quotation" label="New quotation" />
+              <NavItem to="/agent/quotations" label="Quotations by client" />
               <NavItem to="/agent/invoices" label="Client past invoices" />
               <NavItem to="/notifications" label="Notifications" badge={unread} />
             </>

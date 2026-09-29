@@ -7,7 +7,7 @@ import { PoolClient } from "pg";
  * Sales Invoice numbers are the real, admin-entered official document numbers
  * and are never generated here.
  */
-export const nextDocNo = async (client: PoolClient, kind: "SO"): Promise<string> => {
+export const nextDocNo = async (client: PoolClient, kind: "SO" | "QT"): Promise<string> => {
   const year = new Date().getFullYear();
   const res = await client.query(
     `INSERT INTO doc_counters (kind, year, counter) VALUES ($1, $2, 1)
