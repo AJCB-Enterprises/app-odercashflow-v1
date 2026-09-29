@@ -288,3 +288,90 @@ quotationsRouter.post("/", requireAgentPermission("can_create_po"), createQuotat
 
   res.status(201).json({ ...created, sent });
 });
+
+/**
+ * POST /quotations/:id/resend — re-sends a previously created quotation
+ * exactly as originally drafted (same items, discount, remarks, terms) to
+ * whatever email addresses are currently on file for the client. This is a
+ * delivery retry, not an edit — nothing about the quotation record changes
+ * except `sent_at`, which is bumped to the latest successful send.
+ */
+quotationsRouter.post("/:id/resend", requireAgentPermission("can_create_po"), createQuotationLimiter, async (req, res) => {
+  const user = req.user!;
+  const quotation = await one<{
+    id: string; quote_no: string; client_id: string;
+    payment_terms: string; vat_status: string; valid_until: string;
+    discount_amount: string; remarks: string | null;
+  }>("SELECT * FROM quotations WHERE id = $1", [req.params.id]);
+  if (!quotation) return res.status(404).json({ error: "Quotation not found" });
+
+  const clientRow = await one<{
+    id: string; company_name: string; contact_name: string;
+    email: string | null; extra_emails: string[]; agent_id: string | null;
+  }>(
+    "SELECT id, company_name, contact_name, email, extra_emails, agent_id FROM clients WHERE id = $1",
+    [quotation.client_id]
+  );
+  if (!clientRow || (user.role === "agent" && clientRow.agent_id !== user.id))
+    return res.status(404).json({ error: "Quotation not found" });
+
+  const recipients = clientEmails(clientRow);
+  if (!recipients.length)
+    return res.status(400).json({ error: "This client has no email on file — add one before resending" });
+
+  const items = await q<{ description: string; qty: number; unit_price: number }>(
+    "SELECT description, qty, unit_price FROM quotation_items WHERE quotation_id = $1",
+    [quotation.id]
+  );
+  const subtotal = items.reduce((s, it) => s + Number(it.qty) * Number(it.unit_price), 0);
+  const discountAmount = Number(quotation.discount_amount);
+  const total = Math.max(0, subtotal - discountAmount);
+
+  const lines = items
+    .map((it) => `  - ${it.description} — qty ${it.qty} x ${peso(Number(it.unit_price))} = ${peso(it.qty * Number(it.unit_price))}`)
+    .join("\n");
+  const totalsLines = discountAmount > 0
+    ? `Subtotal: ${peso(subtotal)}\nDiscount: -${peso(discountAmount)}\nTotal: ${peso(total)}\n`
+    : `Total: ${peso(total)}\n`;
+  const body =
+    `Hi ${clientRow.contact_name},\n\n` +
+    `Please find our quotation ${quotation.quote_no} below.\n\n` +
+    `Line items:\n${lines}\n\n` +
+    totalsLines +
+    `VAT treatment: ${VAT_STATUS_LABELS[quotation.vat_status]}\n` +
+    `Payment terms: ${PAYMENT_TERM_LABELS[quotation.payment_terms]}\n` +
+    `Valid until: ${shortDate(quotation.valid_until)}\n` +
+    (quotation.remarks ? `Remarks: ${quotation.remarks}\n` : "") +
+    `\nThis is a quotation only, not an invoice or a confirmed order. Please reach out to your ` +
+    `AJCB representative if you'd like to proceed.\n\n` +
+    `Thank you,\n${user.full_name}\nAJCB Enterprises`;
+
+  const html = quotationEmailHtml({
+    contactName: clientRow.contact_name,
+    quoteNo: quotation.quote_no,
+    items: items.map((it) => ({ description: it.description, qty: Number(it.qty), unit_price: Number(it.unit_price) })),
+    subtotal,
+    discountAmount,
+    total,
+    vatStatus: quotation.vat_status,
+    paymentTerms: quotation.payment_terms,
+    validUntil: quotation.valid_until,
+    remarks: quotation.remarks,
+    agentName: user.full_name,
+  });
+
+  let sent = false;
+  let sentAt: Date | null = null;
+  try {
+    await sendMail(recipients, `Quotation ${quotation.quote_no} from AJCB Enterprises (Resent)`, body, html);
+    sent = true;
+    sentAt = new Date();
+    await q("UPDATE quotations SET sent_at = now() WHERE id = $1", [quotation.id]);
+    await audit(user.id, "quotation.resent", "quotation", quotation.id, { quote_no: quotation.quote_no, client_id: quotation.client_id });
+  } catch (e: any) {
+    console.error(`quotation resend failed for ${quotation.quote_no}:`, e.message);
+    return res.status(502).json({ error: "Failed to send the email — try again in a moment" });
+  }
+
+  res.json({ id: quotation.id, quote_no: quotation.quote_no, sent, sent_at: sentAt });
+});

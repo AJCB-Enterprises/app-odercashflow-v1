@@ -190,3 +190,112 @@ describe("GET /quotations", () => {
     expect(res.body[0].items).toHaveLength(2);
   });
 });
+
+describe("POST /quotations/:id/resend", () => {
+  it("resends and bumps sent_at", async () => {
+    const agent = await createUser({ role: "agent" });
+    const client = await createClientRow({ agentId: agent.id });
+
+    const created = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send(body(client.id));
+    const firstSentAt = created.body.sent_at;
+
+    await new Promise((r) => setTimeout(r, 5));
+
+    const res = await request(app)
+      .post(`/quotations/${created.body.id}/resend`)
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(true);
+    expect(res.body.quote_no).toBe(created.body.quote_no);
+    expect(new Date(res.body.sent_at).getTime()).toBeGreaterThan(new Date(firstSentAt).getTime());
+
+    const { rows } = await pool.query("SELECT sent_at FROM quotations WHERE id = $1", [created.body.id]);
+    expect(new Date(rows[0].sent_at).getTime()).toBeGreaterThan(new Date(firstSentAt).getTime());
+  });
+
+  it("lets admin resend any agent's quotation", async () => {
+    const agent = await createUser({ role: "agent" });
+    const client = await createClientRow({ agentId: agent.id });
+    const created = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send(body(client.id));
+
+    const admin = await createUser({ role: "admin" });
+    const res = await request(app)
+      .post(`/quotations/${created.body.id}/resend`)
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send();
+
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(true);
+  });
+
+  it("404s when an agent resends a quotation that isn't for their own client", async () => {
+    const owner = await createUser({ role: "agent" });
+    const stranger = await createUser({ role: "agent" });
+    const client = await createClientRow({ agentId: owner.id });
+    const created = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(owner)}`)
+      .send(body(client.id));
+
+    const res = await request(app)
+      .post(`/quotations/${created.body.id}/resend`)
+      .set("Authorization", `Bearer ${tokenFor(stranger)}`)
+      .send();
+
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a quotation id that doesn't exist", async () => {
+    const agent = await createUser({ role: "agent" });
+
+    const res = await request(app)
+      .post(`/quotations/00000000-0000-0000-0000-000000000000/resend`)
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send();
+
+    expect(res.status).toBe(404);
+  });
+
+  it("400s if the client no longer has an email on file", async () => {
+    const agent = await createUser({ role: "agent" });
+    const client = await createClientRow({ agentId: agent.id });
+    const created = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send(body(client.id));
+
+    await pool.query("UPDATE clients SET email = NULL, extra_emails = '{}' WHERE id = $1", [client.id]);
+
+    const res = await request(app)
+      .post(`/quotations/${created.body.id}/resend`)
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send();
+
+    expect(res.status).toBe(400);
+  });
+
+  it("is blocked for an agent without can_create_po", async () => {
+    const agent = await createUser({ role: "agent", canCreatePo: false });
+    const client = await createClientRow({ agentId: agent.id });
+    const admin = await createUser({ role: "admin" });
+    const created = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send(body(client.id));
+
+    const res = await request(app)
+      .post(`/quotations/${created.body.id}/resend`)
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send();
+
+    expect(res.status).toBe(403);
+  });
+});

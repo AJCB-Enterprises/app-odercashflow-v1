@@ -544,7 +544,9 @@ export function AgentNewQuotation() {
 
 /* ---- Quotations by client ---- */
 export function AgentQuotations() {
-  const { data, error, loading } = useData<any[]>(() => api.get("/quotations"), []);
+  const { data, error, loading, reload } = useData<any[]>(() => api.get("/quotations"), []);
+  const toast = useToast();
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const byClient = useMemo(() => {
     const map = new Map<string, any[]>();
     (data || []).forEach((qt) => {
@@ -555,6 +557,19 @@ export function AgentQuotations() {
     return [...map.entries()];
   }, [data]);
 
+  const resend = async (qt: any) => {
+    setResendingId(qt.id);
+    try {
+      await api.post(`/quotations/${qt.id}/resend`);
+      toast(`${qt.quote_no} resent.`);
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    } finally {
+      setResendingId(null);
+    }
+  };
+
   return (
     <>
       <h1 className="page">Quotations by client</h1>
@@ -563,7 +578,7 @@ export function AgentQuotations() {
       {loading ? <Loading /> : byClient.length ? byClient.map(([name, quotes]) => (
         <Card key={name} title={name} pad={false}>
           <table className="ledger">
-            <thead><tr><th>Quote #</th><th className="right">Total</th><th>Terms</th><th>Valid until</th><th>Sent</th></tr></thead>
+            <thead><tr><th>Quote #</th><th className="right">Total</th><th>Terms</th><th>Valid until</th><th>Sent</th><th /></tr></thead>
             <tbody>
               {quotes.map((qt) => (
                 <tr key={qt.id}>
@@ -588,6 +603,11 @@ export function AgentQuotations() {
                   </td>
                   <td className="num">{fmtDate(qt.valid_until)}</td>
                   <td>{qt.sent_at ? <span className="chip green">Sent</span> : <span className="chip amber">Not sent</span>}</td>
+                  <td>
+                    <button className="btn sm ghost" disabled={resendingId === qt.id} onClick={() => resend(qt)}>
+                      {resendingId === qt.id ? "Sending…" : "Resend"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
