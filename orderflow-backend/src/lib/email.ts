@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import nodemailer, { Transporter } from "nodemailer";
 import { config } from "../config";
 
@@ -15,24 +18,33 @@ export interface SentMail {
  * neither set (dev), the message is printed to the console instead — link
  * included — so the whole flow is testable locally. Never log message bodies
  * in production: reminder emails contain upload links.
+ *
+ * `html`, when given, is sent alongside `text` (every provider path below
+ * keeps `text` as the fallback body for plain-text clients) — most callers
+ * only ever pass `text`.
  */
-export const sendMail = async (to: string | string[], subject: string, text: string): Promise<SentMail> => {
+export const sendMail = async (to: string | string[], subject: string, text: string, html?: string): Promise<SentMail> => {
   if (config.resendApiKey) {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${config.resendApiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: config.mailFrom, to, subject, text }),
+      body: JSON.stringify({ from: config.mailFrom, to, subject, text, ...(html ? { html } : {}) }),
     });
     if (!res.ok) throw new Error(`Resend API error ${res.status}: ${await res.text().catch(() => "")}`);
     const data = (await res.json()) as { id?: string };
     return { providerId: data.id || "resend" };
   }
   if (transporter) {
-    const info = await transporter.sendMail({ from: config.mailFrom, to, subject, text });
+    const info = await transporter.sendMail({ from: config.mailFrom, to, subject, text, ...(html ? { html } : {}) });
     return { providerId: info.messageId || "smtp" };
   }
   const toLabel = Array.isArray(to) ? to.join(", ") : to;
   console.log(`\n--- EMAIL (dev console transport) ---\nTo: ${toLabel}\nSubject: ${subject}\n\n${text}\n--- END EMAIL ---\n`);
+  if (html) {
+    const previewPath = path.join(os.tmpdir(), `orderflow-email-preview-${Date.now()}.html`);
+    fs.writeFileSync(previewPath, html);
+    console.log(`(HTML version written to ${previewPath} for local preview)`);
+  }
   return { providerId: "console" };
 };
 

@@ -6,6 +6,7 @@ import { clientScopeSql, requireAgentPermission, requireAuth } from "../middlewa
 import { nextDocNo, peso, shortDate } from "../lib/numbering";
 import { audit } from "../lib/notify";
 import { clientEmails, sendMail } from "../lib/email";
+import { config } from "../config";
 
 export const quotationsRouter = Router();
 quotationsRouter.use(requireAuth);
@@ -20,6 +21,100 @@ const createQuotationLimiter = rateLimit({
 
 const PAYMENT_TERM_LABELS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", cod: "COD" };
 const VAT_STATUS_LABELS: Record<string, string> = { vat_exempt: "SO/ DR", vat_inclusive: "VAT-Inclusive", zero_rated: "Zero-Rated" };
+
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/**
+ * The HTML counterpart to the quotation's plain-text email — table-based
+ * layout and inline styles throughout (no <style> block, no flexbox/grid),
+ * since that's what actually renders consistently across email clients,
+ * Outlook included. The logo is a normal <img> pointed at this server's own
+ * public, unauthenticated /assets route — email clients fetch images over
+ * plain HTTP(S), they can't reach anything behind a JWT.
+ */
+const quotationEmailHtml = (opts: {
+  contactName: string;
+  quoteNo: string;
+  items: { description: string; qty: number; unit_price: number }[];
+  subtotal: number;
+  vatStatus: string;
+  paymentTerms: string;
+  validUntil: string;
+  agentName: string;
+}) => {
+  const logoUrl = `${config.publicBaseUrl}/assets/logo.png`;
+  const itemRows = opts.items
+    .map(
+      (it) => `
+              <tr>
+                <td style="padding:8px 10px;font-size:14px;color:#1C2333;border-bottom:1px solid #EFEEE7;">${escapeHtml(it.description)}</td>
+                <td align="right" style="padding:8px 10px;font-size:14px;color:#1C2333;border-bottom:1px solid #EFEEE7;">${it.qty}</td>
+                <td align="right" style="padding:8px 10px;font-size:14px;color:#1C2333;border-bottom:1px solid #EFEEE7;">${peso(it.unit_price)}</td>
+                <td align="right" style="padding:8px 10px;font-size:14px;color:#1C2333;border-bottom:1px solid #EFEEE7;">${peso(it.qty * it.unit_price)}</td>
+              </tr>`
+    )
+    .join("");
+
+  return `<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:0;background:#F4F5F1;font-family:Arial,Helvetica,sans-serif;color:#1C2333;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F4F5F1;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border:1px solid #DEE1D9;border-radius:6px;">
+            <tr>
+              <td style="padding:28px 32px 20px;border-bottom:3px solid #1E6E52;">
+                <img src="${logoUrl}" alt="AJCB Enterprises Inc." width="180" style="display:block;border:0;">
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px;">
+                <p style="margin:0 0 16px;font-size:15px;">Hi ${escapeHtml(opts.contactName)},</p>
+                <p style="margin:0 0 20px;font-size:15px;">Please find our quotation <strong>${opts.quoteNo}</strong> below.</p>
+
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:20px;">
+                  <tr style="background:#F4F5F1;">
+                    <td style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#525A6B;border-bottom:1px solid #DEE1D9;">Item</td>
+                    <td align="right" style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#525A6B;border-bottom:1px solid #DEE1D9;">Qty</td>
+                    <td align="right" style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#525A6B;border-bottom:1px solid #DEE1D9;">Unit ₱</td>
+                    <td align="right" style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#525A6B;border-bottom:1px solid #DEE1D9;">Total</td>
+                  </tr>${itemRows}
+                  <tr>
+                    <td colspan="3" style="padding:10px;font-size:14px;font-weight:bold;text-align:right;border-top:2px solid #1C2333;">Total</td>
+                    <td align="right" style="padding:10px;font-size:14px;font-weight:bold;border-top:2px solid #1C2333;">${peso(opts.subtotal)}</td>
+                  </tr>
+                </table>
+
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+                  <tr>
+                    <td style="padding:4px 0;font-size:13px;color:#525A6B;">VAT treatment</td>
+                    <td align="right" style="padding:4px 0;font-size:13px;">${VAT_STATUS_LABELS[opts.vatStatus]}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0;font-size:13px;color:#525A6B;">Payment terms</td>
+                    <td align="right" style="padding:4px 0;font-size:13px;">${PAYMENT_TERM_LABELS[opts.paymentTerms]}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0;font-size:13px;color:#525A6B;">Valid until</td>
+                    <td align="right" style="padding:4px 0;font-size:13px;">${shortDate(opts.validUntil)}</td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 20px;font-size:13px;color:#525A6B;font-style:italic;">
+                  This is a quotation only, not an invoice or a confirmed order. Please reach out to your AJCB representative if you'd like to proceed.
+                </p>
+
+                <p style="margin:0;font-size:15px;">Thank you,<br>${escapeHtml(opts.agentName)}<br>AJCB Enterprises</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+};
 
 /** GET /quotations — admin sees every quotation; an agent sees only their own clients'. */
 quotationsRouter.get("/", async (req, res) => {
@@ -127,9 +222,20 @@ quotationsRouter.post("/", requireAgentPermission("can_create_po"), createQuotat
     `AJCB representative if you'd like to proceed.\n\n` +
     `Thank you,\n${user.full_name}\nAJCB Enterprises`;
 
+  const html = quotationEmailHtml({
+    contactName: clientRow.contact_name,
+    quoteNo: created.quote_no,
+    items,
+    subtotal,
+    vatStatus: vat_status,
+    paymentTerms: payment_terms,
+    validUntil: valid_until,
+    agentName: user.full_name,
+  });
+
   let sent = false;
   try {
-    await sendMail(recipients, `Quotation ${created.quote_no} from AJCB Enterprises`, body);
+    await sendMail(recipients, `Quotation ${created.quote_no} from AJCB Enterprises`, body, html);
     sent = true;
     await q("UPDATE quotations SET sent_at = now() WHERE id = $1", [created.id]);
     created.sent_at = new Date();

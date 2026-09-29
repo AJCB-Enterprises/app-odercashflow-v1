@@ -1,4 +1,5 @@
 import express from "express";
+import path from "node:path";
 import cors from "cors";
 import helmet from "helmet";
 import { config } from "./config";
@@ -25,6 +26,11 @@ app.use(cors({ origin: config.corsOrigin === "*" ? true : config.corsOrigin.spli
 app.use(express.json({ limit: "256kb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// Static, unauthenticated brand assets (e.g. the logo referenced in HTML
+// emails) — never anything from a client's own data, just static files
+// checked into the repo.
+app.use("/assets", express.static(path.join(__dirname, "..", "public"), { maxAge: "7d" }));
 
 app.use("/auth", authRouter);
 app.use("/dashboard", dashboardRouter);

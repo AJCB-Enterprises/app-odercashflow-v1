@@ -85,6 +85,19 @@ describe("POST /quotations", () => {
     expect(res.status).toBe(400);
   });
 
+  it("succeeds when item descriptions contain HTML-special characters (the email body is HTML now)", async () => {
+    const agent = await createUser({ role: "agent" });
+    const client = await createClientRow({ agentId: agent.id });
+
+    const res = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send(body(client.id, { items: [{ description: `<script>alert(1)</script> & "quoted"`, qty: 1, unit_price: 100 }] }));
+
+    expect(res.status).toBe(201);
+    expect(res.body.sent).toBe(true);
+  });
+
   it("is blocked for an agent without can_create_po", async () => {
     const agent = await createUser({ role: "agent", canCreatePo: false });
     const client = await createClientRow({ agentId: agent.id });
