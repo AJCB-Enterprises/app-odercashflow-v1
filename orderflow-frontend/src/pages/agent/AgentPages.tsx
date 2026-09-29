@@ -419,6 +419,8 @@ export function AgentNewQuotation() {
   const [paymentTerms, setPaymentTerms] = useState("net_30");
   const [vatStatus, setVatStatus] = useState("vat_inclusive");
   const [validUntil, setValidUntil] = useState(defaultValidUntil);
+  const [discount, setDiscount] = useState("0");
+  const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
   const navigate = useNavigate();
@@ -428,7 +430,10 @@ export function AgentNewQuotation() {
   const clean = items
     .filter((it) => it.description.trim() && Number(it.qty) > 0 && Number(it.unit_price) > 0)
     .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
-  const total = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  const subtotal = clean.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  const discountAmount = Number(discount) || 0;
+  const discountTooHigh = discountAmount > subtotal;
+  const total = Math.max(0, subtotal - discountAmount);
   const chosen = clientId || clients?.[0]?.id || "";
   const chosenClient = (clients || []).find((c) => c.id === chosen);
 
@@ -450,6 +455,8 @@ export function AgentNewQuotation() {
         payment_terms: paymentTerms,
         vat_status: vatStatus,
         valid_until: validUntil,
+        discount_amount: discountAmount,
+        ...(remarks.trim() ? { remarks: remarks.trim() } : {}),
       });
       toast(
         res.sent
@@ -488,6 +495,17 @@ export function AgentNewQuotation() {
           </select>
           <label className="f" htmlFor="qvu">Valid until</label>
           <input id="qvu" className="f" type="date" style={{ maxWidth: 340 }} value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+          <label className="f" htmlFor="qd">Discount (optional)</label>
+          <input id="qd" className="f num" type="number" min={0} step="0.01" placeholder="0.00"
+            style={{ maxWidth: 160 }} value={discount} onChange={(e) => setDiscount(e.target.value)} />
+          {discountTooHigh && (
+            <p style={{ marginTop: -6, marginBottom: 10, fontSize: 12.5, color: "var(--red)" }}>
+              Discount can't exceed the subtotal ({peso(subtotal)}).
+            </p>
+          )}
+          <label className="f" htmlFor="qr">Remarks (optional)</label>
+          <textarea id="qr" className="f" rows={2} style={{ maxWidth: 460 }} value={remarks}
+            onChange={(e) => setRemarks(e.target.value)} placeholder="Anything else the client should know about this quote." />
           <label className="f">Line items</label>
           {items.map((it, i) => (
             <div className="itemrow" key={i}>
@@ -504,11 +522,19 @@ export function AgentNewQuotation() {
           <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>
             + Add line
           </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 18 }}>
-            <span className="num strong" style={{ fontSize: 16 }}>Total {peso(total)}</span>
-            <button className="btn" disabled={!chosen || !clean.length || !validUntil || busy} onClick={submit}>
-              {busy ? "Sending…" : "Create & send quotation"}
-            </button>
+          <div style={{ marginTop: 18 }}>
+            {discountAmount > 0 && (
+              <div className="dim" style={{ marginBottom: 4 }}>
+                <span>Subtotal {peso(subtotal)}</span>
+                <span style={{ marginLeft: 16 }}>Discount −{peso(discountAmount)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <span className="num strong" style={{ fontSize: 16 }}>Total {peso(total)}</span>
+              <button className="btn" disabled={!chosen || !clean.length || !validUntil || discountTooHigh || busy} onClick={submit}>
+                {busy ? "Sending…" : "Create & send quotation"}
+              </button>
+            </div>
           </div>
         </Card>
       )}
@@ -546,8 +572,14 @@ export function AgentQuotations() {
                     <div className="dim" style={{ fontSize: 12.5 }}>
                       {(qt.items || []).map((it: any) => it.description).join(", ")}
                     </div>
+                    {qt.remarks && <div className="dim" style={{ fontSize: 12.5 }}>Remarks: {qt.remarks}</div>}
                   </td>
-                  <td className="num right">{peso(qt.total)}</td>
+                  <td className="num right">
+                    {peso(qt.total)}
+                    {Number(qt.discount_amount) > 0 && (
+                      <div className="dim" style={{ fontSize: 12.5 }}>Includes {peso(qt.discount_amount)} discount</div>
+                    )}
+                  </td>
                   <td>
                     {PAYMENT_TERM_OPTIONS.find((o) => o.value === qt.payment_terms)?.label || qt.payment_terms}
                     <div className="dim" style={{ fontSize: 12.5 }}>

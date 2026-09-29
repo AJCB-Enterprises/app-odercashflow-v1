@@ -38,9 +38,12 @@ const quotationEmailHtml = (opts: {
   quoteNo: string;
   items: { description: string; qty: number; unit_price: number }[];
   subtotal: number;
+  discountAmount: number;
+  total: number;
   vatStatus: string;
   paymentTerms: string;
   validUntil: string;
+  remarks: string | null;
   agentName: string;
 }) => {
   const logoUrl = `${config.publicBaseUrl}/assets/logo.png`;
@@ -55,6 +58,31 @@ const quotationEmailHtml = (opts: {
               </tr>`
     )
     .join("");
+  const totalsRows = opts.discountAmount > 0
+    ? `
+                  <tr>
+                    <td colspan="3" style="padding:6px 10px 0;font-size:13px;color:#525A6B;text-align:right;">Subtotal</td>
+                    <td align="right" style="padding:6px 10px 0;font-size:13px;color:#525A6B;">${peso(opts.subtotal)}</td>
+                  </tr>
+                  <tr>
+                    <td colspan="3" style="padding:2px 10px 6px;font-size:13px;color:#525A6B;text-align:right;">Discount</td>
+                    <td align="right" style="padding:2px 10px 6px;font-size:13px;color:#525A6B;">−${peso(opts.discountAmount)}</td>
+                  </tr>
+                  <tr>
+                    <td colspan="3" style="padding:10px;font-size:14px;font-weight:bold;text-align:right;border-top:2px solid #1C2333;">Total</td>
+                    <td align="right" style="padding:10px;font-size:14px;font-weight:bold;border-top:2px solid #1C2333;">${peso(opts.total)}</td>
+                  </tr>`
+    : `
+                  <tr>
+                    <td colspan="3" style="padding:10px;font-size:14px;font-weight:bold;text-align:right;border-top:2px solid #1C2333;">Total</td>
+                    <td align="right" style="padding:10px;font-size:14px;font-weight:bold;border-top:2px solid #1C2333;">${peso(opts.total)}</td>
+                  </tr>`;
+  const remarksBlock = opts.remarks
+    ? `
+                <p style="margin:0 0 20px;font-size:13px;color:#525A6B;">
+                  <strong style="color:#1C2333;">Remarks:</strong> ${escapeHtml(opts.remarks)}
+                </p>`
+    : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -79,11 +107,7 @@ const quotationEmailHtml = (opts: {
                     <td align="right" style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#525A6B;border-bottom:1px solid #DEE1D9;">Qty</td>
                     <td align="right" style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#525A6B;border-bottom:1px solid #DEE1D9;">Unit ₱</td>
                     <td align="right" style="padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#525A6B;border-bottom:1px solid #DEE1D9;">Total</td>
-                  </tr>${itemRows}
-                  <tr>
-                    <td colspan="3" style="padding:10px;font-size:14px;font-weight:bold;text-align:right;border-top:2px solid #1C2333;">Total</td>
-                    <td align="right" style="padding:10px;font-size:14px;font-weight:bold;border-top:2px solid #1C2333;">${peso(opts.subtotal)}</td>
-                  </tr>
+                  </tr>${itemRows}${totalsRows}
                 </table>
 
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
@@ -100,7 +124,7 @@ const quotationEmailHtml = (opts: {
                     <td align="right" style="padding:4px 0;font-size:13px;">${shortDate(opts.validUntil)}</td>
                   </tr>
                 </table>
-
+${remarksBlock}
                 <p style="margin:0 0 20px;font-size:13px;color:#525A6B;font-style:italic;">
                   This is a quotation only, not an invoice or a confirmed order. Please reach out to your AJCB representative if you'd like to proceed.
                 </p>
@@ -125,9 +149,11 @@ quotationsRouter.get("/", async (req, res) => {
 
   const rows = await q(
     `SELECT qt.id, qt.quote_no, qt.payment_terms, qt.vat_status, qt.valid_until, qt.sent_at, qt.created_at,
+            qt.discount_amount, qt.remarks,
             c.id AS client_id, c.company_name,
             u.full_name AS agent_name,
-            coalesce(sum(qi.qty * qi.unit_price), 0) AS total,
+            coalesce(sum(qi.qty * qi.unit_price), 0) AS subtotal,
+            greatest(0, coalesce(sum(qi.qty * qi.unit_price), 0) - qt.discount_amount) AS total,
             (SELECT json_agg(json_build_object('description', description, 'qty', qty, 'unit_price', unit_price))
                FROM quotation_items qi2 WHERE qi2.quotation_id = qt.id) AS items
        FROM quotations qt
@@ -156,6 +182,10 @@ const QuotationBody = z.object({
   payment_terms: z.enum(["net_15", "net_30", "net_45", "cod"]),
   vat_status: z.enum(["vat_exempt", "vat_inclusive", "zero_rated"]),
   valid_until: z.string().date(),
+  // Flat peso discount, defaults to none — validated below against the
+  // item subtotal, same rule as an order's own discount_amount.
+  discount_amount: z.number().min(0).optional(),
+  remarks: z.string().trim().max(2000).optional(),
 });
 
 /**
@@ -174,6 +204,12 @@ quotationsRouter.post("/", requireAgentPermission("can_create_po"), createQuotat
   const parsed = QuotationBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const { client_id, items, payment_terms, vat_status, valid_until } = parsed.data;
+  const discountAmount = parsed.data.discount_amount ?? 0;
+  const remarks = parsed.data.remarks || null;
+
+  const subtotal = items.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  if (discountAmount > subtotal)
+    return res.status(400).json({ error: "Discount can't exceed the quotation subtotal" });
 
   const clientRow = await one<{
     id: string; company_name: string; contact_name: string;
@@ -192,9 +228,9 @@ quotationsRouter.post("/", requireAgentPermission("can_create_po"), createQuotat
   const created = await tx(async (c) => {
     const quoteNo = await nextDocNo(c, "QT");
     const qRes = await c.query(
-      `INSERT INTO quotations (quote_no, client_id, created_by, payment_terms, vat_status, valid_until)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [quoteNo, client_id, user.id, payment_terms, vat_status, valid_until]
+      `INSERT INTO quotations (quote_no, client_id, created_by, payment_terms, vat_status, valid_until, discount_amount, remarks)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [quoteNo, client_id, user.id, payment_terms, vat_status, valid_until, discountAmount, remarks]
     );
     const quotation = qRes.rows[0];
     for (const it of items)
@@ -202,23 +238,27 @@ quotationsRouter.post("/", requireAgentPermission("can_create_po"), createQuotat
         "INSERT INTO quotation_items (quotation_id, description, qty, unit_price) VALUES ($1, $2, $3, $4)",
         [quotation.id, it.description, it.qty, it.unit_price]
       );
-    await audit(user.id, "quotation.created", "quotation", quotation.id, { quote_no: quoteNo, client_id }, c);
+    await audit(user.id, "quotation.created", "quotation", quotation.id, { quote_no: quoteNo, client_id, discount_amount: discountAmount }, c);
     return quotation;
   });
 
-  const subtotal = items.reduce((s, it) => s + it.qty * it.unit_price, 0);
+  const total = Math.max(0, subtotal - discountAmount);
   const lines = items
     .map((it) => `  - ${it.description} — qty ${it.qty} x ${peso(it.unit_price)} = ${peso(it.qty * it.unit_price)}`)
     .join("\n");
+  const totalsLines = discountAmount > 0
+    ? `Subtotal: ${peso(subtotal)}\nDiscount: -${peso(discountAmount)}\nTotal: ${peso(total)}\n`
+    : `Total: ${peso(total)}\n`;
   const body =
     `Hi ${clientRow.contact_name},\n\n` +
     `Please find our quotation ${created.quote_no} below.\n\n` +
     `Line items:\n${lines}\n\n` +
-    `Total: ${peso(subtotal)}\n` +
+    totalsLines +
     `VAT treatment: ${VAT_STATUS_LABELS[vat_status]}\n` +
     `Payment terms: ${PAYMENT_TERM_LABELS[payment_terms]}\n` +
-    `Valid until: ${shortDate(valid_until)}\n\n` +
-    `This is a quotation only, not an invoice or a confirmed order. Please reach out to your ` +
+    `Valid until: ${shortDate(valid_until)}\n` +
+    (remarks ? `Remarks: ${remarks}\n` : "") +
+    `\nThis is a quotation only, not an invoice or a confirmed order. Please reach out to your ` +
     `AJCB representative if you'd like to proceed.\n\n` +
     `Thank you,\n${user.full_name}\nAJCB Enterprises`;
 
@@ -227,9 +267,12 @@ quotationsRouter.post("/", requireAgentPermission("can_create_po"), createQuotat
     quoteNo: created.quote_no,
     items,
     subtotal,
+    discountAmount,
+    total,
     vatStatus: vat_status,
     paymentTerms: payment_terms,
     validUntil: valid_until,
+    remarks,
     agentName: user.full_name,
   });
 

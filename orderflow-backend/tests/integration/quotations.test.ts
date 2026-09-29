@@ -98,6 +98,53 @@ describe("POST /quotations", () => {
     expect(res.body.sent).toBe(true);
   });
 
+  it("defaults discount to 0 when omitted", async () => {
+    const agent = await createUser({ role: "agent" });
+    const client = await createClientRow({ agentId: agent.id });
+
+    const res = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send(body(client.id));
+
+    expect(res.status).toBe(201);
+    const { rows } = await pool.query("SELECT discount_amount, remarks FROM quotations WHERE id = $1", [res.body.id]);
+    expect(Number(rows[0].discount_amount)).toBe(0);
+    expect(rows[0].remarks).toBeNull();
+  });
+
+  it("nets the discount off the total and stores remarks", async () => {
+    const agent = await createUser({ role: "agent" });
+    const client = await createClientRow({ agentId: agent.id });
+
+    const res = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send(body(client.id, { discount_amount: 150, remarks: "Bulk order discount for a repeat client." }));
+
+    expect(res.status).toBe(201);
+    const { rows } = await pool.query("SELECT discount_amount, remarks FROM quotations WHERE id = $1", [res.body.id]);
+    expect(Number(rows[0].discount_amount)).toBe(150);
+    expect(rows[0].remarks).toBe("Bulk order discount for a repeat client.");
+
+    const list = await request(app).get("/quotations").set("Authorization", `Bearer ${tokenFor(agent)}`);
+    const row = list.body.find((qt: any) => qt.id === res.body.id);
+    expect(Number(row.subtotal)).toBe(1500);
+    expect(Number(row.total)).toBe(1350); // 1500 - 150
+  });
+
+  it("rejects a discount larger than the item subtotal", async () => {
+    const agent = await createUser({ role: "agent" });
+    const client = await createClientRow({ agentId: agent.id });
+
+    const res = await request(app)
+      .post("/quotations")
+      .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send(body(client.id, { discount_amount: 5000 }));
+
+    expect(res.status).toBe(400);
+  });
+
   it("is blocked for an agent without can_create_po", async () => {
     const agent = await createUser({ role: "agent", canCreatePo: false });
     const client = await createClientRow({ agentId: agent.id });
