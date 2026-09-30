@@ -414,6 +414,8 @@ const defaultValidUntil = () => new Date(Date.now() + 30 * 86400000).toISOString
 
 export function AgentNewQuotation() {
   const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
+  const { data: products } = useData<any[]>(() => api.get("/products"), []);
+  const activeProducts = (products || []).filter((p) => p.active);
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
   const [paymentTerms, setPaymentTerms] = useState("net_30");
@@ -427,6 +429,11 @@ export function AgentNewQuotation() {
 
   const setItem = (i: number, k: string, v: string) =>
     setItems((its) => its.map((it, j) => (j === i ? { ...it, [k]: v } : it)));
+  const pickProduct = (i: number, productId: string) => {
+    const p = activeProducts.find((p) => p.id === productId);
+    if (!p) return;
+    setItems((its) => its.map((it, j) => (j === i ? { ...it, description: p.description, unit_price: String(p.unit_price) } : it)));
+  };
   const clean = items
     .filter((it) => it.description.trim() && Number(it.qty) > 0 && Number(it.unit_price) > 0)
     .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
@@ -508,7 +515,14 @@ export function AgentNewQuotation() {
             onChange={(e) => setRemarks(e.target.value)} placeholder="Anything else the client should know about this quote." />
           <label className="f">Line items</label>
           {items.map((it, i) => (
-            <div className="itemrow" key={i}>
+            <div className="itemrow-q" key={i}>
+              {activeProducts.length > 0 && (
+                <select className="f" style={{ marginBottom: 0 }} value="" onChange={(e) => pickProduct(i, e.target.value)}
+                  aria-label={`Item ${i + 1} pick from price list`}>
+                  <option value="">Pick from price list…</option>
+                  {activeProducts.map((p) => <option key={p.id} value={p.id}>{p.description} — {peso(p.unit_price)}</option>)}
+                </select>
+              )}
               <input className="f" placeholder="Item description" value={it.description}
                 onChange={(e) => setItem(i, "description", e.target.value)} aria-label={`Item ${i + 1} description`} />
               <input className="f num" type="number" min={1} placeholder="Qty" value={it.qty}

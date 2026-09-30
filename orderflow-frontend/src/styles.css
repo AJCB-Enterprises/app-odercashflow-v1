@@ -103,6 +103,7 @@ textarea.f{resize:vertical}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--red);margin-top:6px;flex-shrink:0}
 .dot.read{background:var(--rule2)}
 .itemrow{display:grid;grid-template-columns:1fr 90px 120px 36px;gap:10px;margin-bottom:8px}
+.itemrow-q{display:grid;grid-template-columns:200px 1fr 90px 120px 36px;gap:10px;margin-bottom:8px}
 .empty{padding:28px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:12.5px}
 .back{background:none;border:none;color:var(--blue);font-family:var(--mono);font-size:12px;cursor:pointer;padding:0;margin-bottom:14px}
 .tokline{font-family:var(--mono);font-size:11px;color:var(--muted);word-break:break-all}
