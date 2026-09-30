@@ -17,6 +17,7 @@ export default function Agents() {
     password: "",
     can_manage_agents: true,
     can_manage_announcements: true,
+    can_manage_products: false,
   });
 
   const create = async () => {
@@ -43,7 +44,7 @@ export default function Agents() {
     try {
       await api.post("/agents/admins", adminForm);
       toast(`Admin account created for ${adminForm.full_name}.`);
-      setAdminForm({ full_name: "", email: "", password: "", can_manage_agents: true, can_manage_announcements: true });
+      setAdminForm({ full_name: "", email: "", password: "", can_manage_agents: true, can_manage_announcements: true, can_manage_products: false });
       reloadAdmins();
     } catch (e: any) {
       toast(e.message, true);
@@ -150,6 +151,10 @@ export default function Agents() {
           <input type="checkbox" checked={adminForm.can_manage_announcements}
             onChange={(e) => setAdminForm({ ...adminForm, can_manage_announcements: e.target.checked })} /> Manage announcements
         </label>
+        <label style={{ display: "block", cursor: "pointer" }}>
+          <input type="checkbox" checked={adminForm.can_manage_products}
+            onChange={(e) => setAdminForm({ ...adminForm, can_manage_products: e.target.checked })} /> Manage price list
+        </label>
         <button className="btn" style={{ marginTop: 14 }} onClick={createAdmin}
           disabled={!adminForm.full_name || !adminForm.email || adminForm.password.length < 10}>
           Create account
@@ -175,6 +180,10 @@ export default function Agents() {
                       <label style={{ display: "block", cursor: isSelf ? "default" : "pointer" }}>
                         <input type="checkbox" checked={a.can_manage_announcements} disabled={isSelf}
                           onChange={() => patchAdmin(a.id, { can_manage_announcements: !a.can_manage_announcements })} /> Manage announcements
+                      </label>
+                      <label style={{ display: "block", cursor: isSelf ? "default" : "pointer" }}>
+                        <input type="checkbox" checked={a.can_manage_products} disabled={isSelf}
+                          onChange={() => patchAdmin(a.id, { can_manage_products: !a.can_manage_products })} /> Manage price list
                       </label>
                     </td>
                     <td>{a.is_active ? <span className="chip green">Active</span> : <span className="chip gray">Deactivated</span>}</td>

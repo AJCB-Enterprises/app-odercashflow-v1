@@ -8,6 +8,7 @@ export interface AuthUser {
   full_name: string;
   can_manage_agents?: boolean;
   can_manage_announcements?: boolean;
+  can_manage_products?: boolean;
 }
 
 export const getToken = () => localStorage.getItem("of_token");

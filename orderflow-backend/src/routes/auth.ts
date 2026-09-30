@@ -22,9 +22,9 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
 
   const user = await one<{
     id: string; password_hash: string; role: string; full_name: string; is_active: boolean;
-    can_manage_agents: boolean; can_manage_announcements: boolean;
+    can_manage_agents: boolean; can_manage_announcements: boolean; can_manage_products: boolean;
   }>(
-    "SELECT id, password_hash, role, full_name, is_active, can_manage_agents, can_manage_announcements FROM users WHERE email = $1",
+    "SELECT id, password_hash, role, full_name, is_active, can_manage_agents, can_manage_announcements, can_manage_products FROM users WHERE email = $1",
     [email]
   );
   // Same message for unknown email / wrong password / deactivated account.
@@ -43,6 +43,7 @@ authRouter.post("/login", loginLimiter, async (req, res) => {
       full_name: user.full_name,
       can_manage_agents: user.can_manage_agents,
       can_manage_announcements: user.can_manage_announcements,
+      can_manage_products: user.can_manage_products,
     },
   });
 });

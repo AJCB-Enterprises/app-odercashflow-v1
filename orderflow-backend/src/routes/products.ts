@@ -3,12 +3,15 @@ import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { one, q, tx } from "../db";
-import { requireAdmin, requireAuth } from "../middleware/auth";
+import { requireAdminPermission, requireAuth } from "../middleware/auth";
 import { audit } from "../lib/notify";
 import { config } from "../config";
 
 export const productsRouter = Router();
 productsRouter.use(requireAuth);
+// Restricted per-admin, opt-in — most admins won't have this even though
+// they're admins, unlike can_manage_agents/can_manage_announcements.
+const manageProducts = requireAdminPermission("can_manage_products");
 
 const uploadCsv = multer({
   storage: multer.memoryStorage(),
@@ -36,7 +39,7 @@ const ProductBody = z.object({
 });
 
 /** POST /products — admin adds a product to the price list. */
-productsRouter.post("/", requireAdmin, async (req, res) => {
+productsRouter.post("/", manageProducts, async (req, res) => {
   const user = req.user!;
   const parsed = ProductBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -56,7 +59,7 @@ const ProductPatchBody = z.object({
 });
 
 /** PATCH /products/:id — admin edits a product's description/price, or activates/deactivates it. */
-productsRouter.patch("/:id", requireAdmin, async (req, res) => {
+productsRouter.patch("/:id", manageProducts, async (req, res) => {
   const user = req.user!;
   const id = String(req.params.id);
   const parsed = ProductPatchBody.safeParse(req.body);
@@ -104,7 +107,7 @@ const parseCsvLine = (line: string): string[] => {
  * list); everything else is added as new. Malformed rows are skipped and
  * reported back rather than failing the whole import.
  */
-productsRouter.post("/import", requireAdmin, importLimiter, uploadCsv.single("file"), async (req, res) => {
+productsRouter.post("/import", manageProducts, importLimiter, uploadCsv.single("file"), async (req, res) => {
   const user = req.user!;
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 

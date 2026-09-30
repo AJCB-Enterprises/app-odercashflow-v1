@@ -29,6 +29,17 @@ describe("POST /products", () => {
     expect(res.status).toBe(403);
   });
 
+  it("is blocked for an admin without can_manage_products", async () => {
+    const admin = await createUser({ role: "admin", canManageProducts: false });
+
+    const res = await request(app)
+      .post("/products")
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ description: "Industrial Widget", unit_price: 250 });
+
+    expect(res.status).toBe(403);
+  });
+
   it("rejects a blank description", async () => {
     const admin = await createUser({ role: "admin" });
 
@@ -110,6 +121,20 @@ describe("PATCH /products/:id", () => {
     const res = await request(app)
       .patch(`/products/${created.body.id}`)
       .set("Authorization", `Bearer ${tokenFor(agent)}`)
+      .send({ unit_price: 999 });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("is blocked for an admin without can_manage_products", async () => {
+    const admin = await createUser({ role: "admin" });
+    const created = await request(app).post("/products").set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ description: "Widget", unit_price: 100 });
+
+    const restrictedAdmin = await createUser({ role: "admin", canManageProducts: false });
+    const res = await request(app)
+      .patch(`/products/${created.body.id}`)
+      .set("Authorization", `Bearer ${tokenFor(restrictedAdmin)}`)
       .send({ unit_price: 999 });
 
     expect(res.status).toBe(403);
@@ -233,5 +258,31 @@ describe("POST /products/import", () => {
       .attach("file", Buffer.from(csv), { filename: "products.csv", contentType: "text/csv" });
 
     expect(res.status).toBe(403);
+  });
+
+  it("is blocked for an admin without can_manage_products", async () => {
+    const admin = await createUser({ role: "admin", canManageProducts: false });
+    const csv = "description,unit_price\nWidget,100\n";
+
+    const res = await request(app)
+      .post("/products/import")
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .attach("file", Buffer.from(csv), { filename: "products.csv", contentType: "text/csv" });
+
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /products with a restricted admin", () => {
+  it("is still readable by an admin without can_manage_products (read-only, for the picker)", async () => {
+    const admin = await createUser({ role: "admin" });
+    await request(app).post("/products").set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .send({ description: "Widget", unit_price: 100 });
+
+    const restrictedAdmin = await createUser({ role: "admin", canManageProducts: false });
+    const res = await request(app).get("/products").set("Authorization", `Bearer ${tokenFor(restrictedAdmin)}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.some((p: any) => p.description === "Widget")).toBe(true);
   });
 });

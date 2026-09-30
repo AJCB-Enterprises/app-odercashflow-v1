@@ -94,7 +94,7 @@ agentsRouter.patch("/:id", manageAgents, async (req, res) => {
 /** GET /agents/admins — every admin account and its restricted-access flags. */
 agentsRouter.get("/admins", manageAgents, async (_req, res) => {
   const rows = await q(
-    `SELECT id, full_name, email, is_active, can_manage_agents, can_manage_announcements
+    `SELECT id, full_name, email, is_active, can_manage_agents, can_manage_announcements, can_manage_products
        FROM users WHERE role = 'admin' ORDER BY full_name`
   );
   res.json(rows);
@@ -106,6 +106,7 @@ const CreateAdmin = z.object({
   password: z.string().min(10, "Password must be at least 10 characters"),
   can_manage_agents: z.boolean().optional(),
   can_manage_announcements: z.boolean().optional(),
+  can_manage_products: z.boolean().optional(),
 });
 
 /** POST /agents/admins — create an admin account, optionally restricted. */
@@ -117,12 +118,12 @@ agentsRouter.post("/admins", manageAgents, async (req, res) => {
   if (exists) return res.status(409).json({ error: "An account with this email already exists" });
 
   const row = await one(
-    `INSERT INTO users (role, full_name, email, password_hash, can_manage_agents, can_manage_announcements)
-     VALUES ('admin', $1, $2, $3, $4, $5)
-     RETURNING id, full_name, email, is_active, can_manage_agents, can_manage_announcements`,
+    `INSERT INTO users (role, full_name, email, password_hash, can_manage_agents, can_manage_announcements, can_manage_products)
+     VALUES ('admin', $1, $2, $3, $4, $5, $6)
+     RETURNING id, full_name, email, is_active, can_manage_agents, can_manage_announcements, can_manage_products`,
     [
       b.full_name, b.email, await bcrypt.hash(b.password, 12),
-      b.can_manage_agents ?? true, b.can_manage_announcements ?? true,
+      b.can_manage_agents ?? true, b.can_manage_announcements ?? true, b.can_manage_products ?? false,
     ]
   );
   await audit(req.user!.id, "admin.created", "user", row.id);
@@ -133,6 +134,7 @@ const PatchAdmin = z.object({
   is_active: z.boolean().optional(),
   can_manage_agents: z.boolean().optional(),
   can_manage_announcements: z.boolean().optional(),
+  can_manage_products: z.boolean().optional(),
   full_name: z.string().min(1).optional(),
 });
 
@@ -150,7 +152,7 @@ agentsRouter.patch("/admins/:id", manageAgents, async (req, res) => {
   const row = await one(
     `UPDATE users SET ${sets}, updated_at = now()
       WHERE id = $1 AND role = 'admin'
-      RETURNING id, full_name, email, is_active, can_manage_agents, can_manage_announcements`,
+      RETURNING id, full_name, email, is_active, can_manage_agents, can_manage_announcements, can_manage_products`,
     [req.params.id, ...fields.map(([, v]) => v)]
   );
   if (!row) return res.status(404).json({ error: "Admin account not found" });

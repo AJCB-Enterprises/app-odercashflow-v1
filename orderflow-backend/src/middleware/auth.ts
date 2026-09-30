@@ -11,6 +11,7 @@ export interface AuthUser {
   can_view_invoices: boolean;
   can_manage_agents: boolean;
   can_manage_announcements: boolean;
+  can_manage_products: boolean;
 }
 
 declare global {
@@ -29,7 +30,7 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
   try {
     const payload = jwt.verify(token, config.jwtSecret) as { sub: string };
     const user = await one<AuthUser>(
-      `SELECT id, role, full_name, can_create_po, can_view_invoices, can_manage_agents, can_manage_announcements
+      `SELECT id, role, full_name, can_create_po, can_view_invoices, can_manage_agents, can_manage_announcements, can_manage_products
          FROM users WHERE id = $1 AND is_active`,
       [payload.sub]
     );
@@ -61,7 +62,7 @@ export const requireAgentPermission =
  * way requireAdmin does.
  */
 export const requireAdminPermission =
-  (perm: "can_manage_agents" | "can_manage_announcements") => (req: Request, res: Response, next: NextFunction) => {
+  (perm: "can_manage_agents" | "can_manage_announcements" | "can_manage_products") => (req: Request, res: Response, next: NextFunction) => {
     const u = req.user!;
     if (u.role !== "admin") return res.status(403).json({ error: "Admin access required" });
     if (!u[perm]) return res.status(403).json({ error: "Your account does not have this permission" });

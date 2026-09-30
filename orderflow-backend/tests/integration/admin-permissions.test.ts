@@ -30,6 +30,19 @@ describe("restricted admin accounts", () => {
     expect(res.status).toBe(403);
   });
 
+  it("blocks an admin from managing the price list unless can_manage_products is granted", async () => {
+    const restricted = await createUser({ role: "admin", canManageProducts: false });
+    const res = await request(app)
+      .post("/products")
+      .set("Authorization", `Bearer ${tokenFor(restricted)}`)
+      .send({ description: "Widget", unit_price: 100 });
+    expect(res.status).toBe(403);
+
+    // But GET /products (the agent picker's data source) still works for them.
+    const list = await request(app).get("/products").set("Authorization", `Bearer ${tokenFor(restricted)}`);
+    expect(list.status).toBe(200);
+  });
+
   it("still allows a restricted admin everywhere else (e.g. the payments-due dashboard)", async () => {
     const restricted = await createUser({ role: "admin", canManageAgents: false, canManageAnnouncements: false });
     const res = await request(app).get("/dashboard/payments-due").set("Authorization", `Bearer ${tokenFor(restricted)}`);
@@ -63,7 +76,7 @@ describe("restricted admin accounts", () => {
     expect(mapping.status).toBe(200);
   });
 
-  it("a new admin defaults to full access unless restricted", async () => {
+  it("a new admin defaults to full access unless restricted, except the price list which is opt-in", async () => {
     const fullAdmin = await createUser({ role: "admin" });
     const res = await request(app)
       .post("/agents/admins")
@@ -72,6 +85,21 @@ describe("restricted admin accounts", () => {
 
     expect(res.body.can_manage_agents).toBe(true);
     expect(res.body.can_manage_announcements).toBe(true);
+    // Unlike the two flags above, this one deliberately defaults to false —
+    // the price list is meant to stay restricted to whichever admin(s) are
+    // explicitly granted it, not everyone by default.
+    expect(res.body.can_manage_products).toBe(false);
+  });
+
+  it("a full admin can grant can_manage_products explicitly when creating an admin", async () => {
+    const fullAdmin = await createUser({ role: "admin" });
+    const res = await request(app)
+      .post("/agents/admins")
+      .set("Authorization", `Bearer ${tokenFor(fullAdmin)}`)
+      .send({ full_name: "Price List Admin", email: "pricelist-admin@ajcb.com.ph", password: "a-real-password", can_manage_products: true });
+
+    expect(res.status).toBe(201);
+    expect(res.body.can_manage_products).toBe(true);
   });
 
   it("an admin can't change their own permissions via /agents/admins/:id", async () => {
