@@ -18,9 +18,12 @@ const uploadCsv = multer({
   limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
 });
 
+// Same bound as quotation creation — high enough that an admin iterating
+// on fixing a real-world export (wrong delimiter, stray columns, etc.)
+// doesn't get locked out mid-troubleshooting.
 const importLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: 30,
   standardHeaders: true,
   message: { error: "Too many imports, try again later" },
 });
@@ -118,7 +121,9 @@ productsRouter.post("/import", manageProducts, importLimiter, uploadCsv.single("
   const user = req.user!;
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-  const text = req.file.buffer.toString("utf-8");
+  // Strip a leading UTF-8 BOM — Excel's "CSV UTF-8" export adds one, and
+  // left in place it silently corrupts the first row's description.
+  const text = req.file.buffer.toString("utf-8").replace(/^﻿/, "");
   const rawLines = text.split(/\r\n|\r|\n/);
 
   const lines: { num: number; raw: string }[] = [];
@@ -139,7 +144,15 @@ productsRouter.post("/import", manageProducts, importLimiter, uploadCsv.single("
   const skipped: { line: number; reason: string }[] = [];
   const rows: { description: string; unit_price: number }[] = [];
   for (const { num, raw } of lines) {
+    // A spreadsheet export often pads every row with blank trailing cells
+    // out to whatever column count the sheet had — drop those before
+    // checking the column count, but still reject a genuine extra column.
     const fields = parseLine(raw);
+    while (fields.length > 2 && fields[fields.length - 1].trim() === "") fields.pop();
+    // A row that's entirely empty (just separators, e.g. leftover blank
+    // rows below the real data in the source sheet) isn't a data problem
+    // worth reporting — skip it quietly rather than padding the report.
+    if (fields.every((f) => f.trim() === "")) continue;
     if (fields.length !== 2) { skipped.push({ line: num, reason: "expected 2 columns (description, unit_price)" }); continue; }
     const description = fields[0].trim();
     const unitPrice = Number(cleanPriceCell(fields[1]));
