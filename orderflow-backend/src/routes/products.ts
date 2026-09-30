@@ -80,8 +80,8 @@ productsRouter.patch("/:id", manageProducts, async (req, res) => {
   res.json(product);
 });
 
-/** Splits one CSV line into fields, handling double-quoted fields (with "" as an escaped quote). */
-const parseCsvLine = (line: string): string[] => {
+/** Splits one delimited line into fields, handling double-quoted fields (with "" as an escaped quote). */
+const parseDelimitedLine = (line: string, delimiter: string): string[] => {
   const fields: string[] = [];
   let field = "";
   let inQuotes = false;
@@ -92,12 +92,19 @@ const parseCsvLine = (line: string): string[] => {
       else if (c === '"') inQuotes = false;
       else field += c;
     } else if (c === '"') inQuotes = true;
-    else if (c === ",") { fields.push(field); field = ""; }
+    else if (c === delimiter) { fields.push(field); field = ""; }
     else field += c;
   }
   fields.push(field);
   return fields;
 };
+
+/**
+ * Strips a peso sign, thousands-separator commas, and surrounding
+ * whitespace from a price cell (e.g. "₱1,360.00" -> "1360.00") — common
+ * when the source is a spreadsheet export rather than a hand-written CSV.
+ */
+const cleanPriceCell = (cell: string) => cell.trim().replace(/[₱$,\s]/g, "");
 
 /**
  * POST /products/import — admin bulk-loads a two-column CSV (description,
@@ -119,17 +126,23 @@ productsRouter.post("/import", manageProducts, importLimiter, uploadCsv.single("
     if (raw.trim()) lines.push({ num: idx + 1, raw });
   });
 
+  // Pasting straight from Excel/Sheets produces tab-separated text saved
+  // with a .csv extension — detect that from the first line rather than
+  // assuming a comma, which would otherwise misread the whole file.
+  const delimiter = lines.length && lines[0].raw.includes("\t") ? "\t" : ",";
+  const parseLine = (line: string) => parseDelimitedLine(line, delimiter);
+
   // A header row's second column ("unit_price", "Price", …) won't parse as a number — a data row's will.
-  if (lines.length && !Number.isFinite(Number((parseCsvLine(lines[0].raw)[1] || "").trim())))
+  if (lines.length && !Number.isFinite(Number(cleanPriceCell(parseLine(lines[0].raw)[1] || ""))))
     lines.shift();
 
   const skipped: { line: number; reason: string }[] = [];
   const rows: { description: string; unit_price: number }[] = [];
   for (const { num, raw } of lines) {
-    const fields = parseCsvLine(raw);
+    const fields = parseLine(raw);
     if (fields.length !== 2) { skipped.push({ line: num, reason: "expected 2 columns (description, unit_price)" }); continue; }
     const description = fields[0].trim();
-    const unitPrice = Number(fields[1].trim());
+    const unitPrice = Number(cleanPriceCell(fields[1]));
     if (!description) { skipped.push({ line: num, reason: "missing description" }); continue; }
     if (!Number.isFinite(unitPrice) || unitPrice < 0) { skipped.push({ line: num, reason: "invalid unit price" }); continue; }
     rows.push({ description, unit_price: unitPrice });

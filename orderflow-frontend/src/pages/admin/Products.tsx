@@ -105,8 +105,10 @@ export default function Products() {
 
       <Card title="Import from CSV" hint="description, unit_price">
         <p className="dim" style={{ marginTop: -4, marginBottom: 12, fontSize: 12.5 }}>
-          Two columns, description then unit price, with or without a header row. A description that matches an existing
-          product (case-insensitive) updates its price and reactivates it; anything else is added as new.
+          Two columns, description then unit price, with or without a header row — comma- or tab-separated (pasting
+          straight from Excel/Sheets works), and prices can include a ₱ sign or thousands commas (e.g. ₱1,360.00).
+          A description that matches an existing product (case-insensitive) updates its price and reactivates it;
+          anything else is added as new.
         </p>
         <label className="btn" style={{ display: "inline-block", cursor: importing ? "default" : "pointer" }}>
           {importing ? "Importing…" : "Choose CSV file"}

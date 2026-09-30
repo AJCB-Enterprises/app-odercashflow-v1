@@ -238,6 +238,53 @@ describe("POST /products/import", () => {
     expect(list.body.some((p: any) => p.description === "Widget, Deluxe Edition")).toBe(true);
   });
 
+  it("handles a tab-delimited file (a direct paste from Excel/Sheets saved as .csv)", async () => {
+    const admin = await createUser({ role: "admin" });
+    const csv = "ECOBEST JRT (SGE) VP 200m 13gsm\t₱1,360.00\nECOBEST JRT (SGE) VP 250m 13gsm\t₱1,440.00\nECONO JRT MG 170m 15 gsm\t₱1,120.00\n";
+
+    const res = await request(app)
+      .post("/products/import")
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .attach("file", Buffer.from(csv), { filename: "products.csv", contentType: "text/csv" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.imported).toBe(3);
+    expect(res.body.skipped).toEqual([]);
+
+    const list = await request(app).get("/products").set("Authorization", `Bearer ${tokenFor(admin)}`);
+    const row = list.body.find((p: any) => p.description === "ECOBEST JRT (SGE) VP 200m 13gsm");
+    expect(Number(row.unit_price)).toBe(1360);
+  });
+
+  it("handles a tab-delimited header row too", async () => {
+    const admin = await createUser({ role: "admin" });
+    const csv = "description\tunit_price\nWidget\t₱1,000.00\n";
+
+    const res = await request(app)
+      .post("/products/import")
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .attach("file", Buffer.from(csv), { filename: "products.csv", contentType: "text/csv" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.imported).toBe(1);
+    const list = await request(app).get("/products").set("Authorization", `Bearer ${tokenFor(admin)}`);
+    expect(list.body.some((p: any) => p.description === "Widget" && Number(p.unit_price) === 1000)).toBe(true);
+  });
+
+  it("still skips genuinely non-numeric prices rather than defaulting to 0", async () => {
+    const admin = await createUser({ role: "admin" });
+    const csv = "description,unit_price\nBad Widget,notanumber\n";
+
+    const res = await request(app)
+      .post("/products/import")
+      .set("Authorization", `Bearer ${tokenFor(admin)}`)
+      .attach("file", Buffer.from(csv), { filename: "products.csv", contentType: "text/csv" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.imported).toBe(0);
+    expect(res.body.skipped).toEqual([{ line: 2, reason: "invalid unit price" }]);
+  });
+
   it("400s when no file is attached", async () => {
     const admin = await createUser({ role: "admin" });
 
