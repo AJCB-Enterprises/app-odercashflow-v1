@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap');
-
 :root{
   --ink:#22262F; --ink2:#4A4F5C; --muted:#7A7F8C;
   --paper:#F5F4EF; --card:#FFFFFF; --rule:#E4E1D8; --rule2:#D5D2C6;
@@ -39,7 +37,8 @@ h1.page{font-family:var(--cond);font-weight:700;font-size:26px;letter-spacing:.0
 .card-h h2{font-family:var(--cond);font-weight:700;font-size:15px;letter-spacing:.05em;text-transform:uppercase}
 .card-h .hint{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto}
 .card-b{padding:16px}
-table.ledger{width:100%;border-collapse:collapse}
+.tablewrap{overflow-x:auto}
+table.ledger{min-width:100%;border-collapse:collapse}
 .ledger th{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:500;padding:10px 16px;border-bottom:1px solid var(--rule2)}
 .ledger td{padding:11px 16px;border-bottom:1px solid var(--rule);vertical-align:top}
 .ledger tr:last-child td{border-bottom:none}
@@ -121,5 +120,8 @@ textarea.f{resize:vertical}
   .navbtn.on{border-bottom-color:var(--ink)}
   .main{padding:18px 14px 60px}
   .grid2{grid-template-columns:1fr}
+  .itemrow,.itemrow-q{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px dashed var(--rule2)}
+  .itemrow>*,.itemrow-q>*{width:100%}
+  .itemrow button,.itemrow-q button{width:auto;align-self:flex-end}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

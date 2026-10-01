@@ -13,7 +13,7 @@ export function Card({ title, hint, pad = true, children }: {
           {hint && <span className="hint">{hint}</span>}
         </div>
       )}
-      {pad ? <div className="card-b">{children}</div> : children}
+      {pad ? <div className="card-b">{children}</div> : <div className="tablewrap">{children}</div>}
     </div>
   );
 }
