@@ -108,48 +108,50 @@ export default function Receipts() {
                   <td className="num">{i.receipt_name || <span className="dim">No receipt uploaded</span>}</td>
                   <td className="num">{i.collection_receipt_no || <span className="dim">—</span>}</td>
                   <td className="num">{i.receipt_uploaded_at ? fmtTime(i.receipt_uploaded_at) : "—"}</td>
-                  <td className="right" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                    {i.receipt_name && (
-                      <button className="btn sm ghost" onClick={() => view(i.id)}>View</button>
-                    )}
-                    {i.ewt_name && (
-                      <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>
-                    )}
-                    <label className="btn sm ghost" style={{ display: "inline-block", cursor: ewtBusy === i.id ? "default" : "pointer" }}>
-                      {ewtBusy === i.id ? "Uploading…" : i.ewt_name ? "Replace 2307" : "Upload 2307"}
-                      <input type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ display: "none" }} disabled={ewtBusy === i.id}
-                        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadEwt(i.id, i.invoice_no, f); e.target.value = ""; }} />
-                    </label>
-                    {recording === i.id ? (
-                      <span style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "flex-end", justifyContent: "flex-end" }}>
-                        <span className="inputgroup">
-                          <span className="lbl">Received</span>
-                          <input className="f num" style={{ width: 100, marginBottom: 0 }} type="number" min={0} step="0.01"
-                            value={amountReceived} onChange={(e) => setAmountReceived(e.target.value)} />
-                        </span>
-                        <span className="inputgroup">
-                          <span className="lbl">EWT</span>
-                          <input className="f num" style={{ width: 90, marginBottom: 0 }} type="number" min={0} step="0.01"
-                            value={ewtAmount} onChange={(e) => setEwtAmount(e.target.value)} />
-                        </span>
-                        <span className="inputgroup">
-                          <span className="lbl">Discount</span>
-                          <input className="f num" style={{ width: 90, marginBottom: 0 }} type="number" min={0} step="0.01"
-                            value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} />
-                        </span>
-                        <span className="inputgroup">
-                          <span className="lbl">CR # (optional)</span>
-                          <input className="f" style={{ width: 130, marginBottom: 0 }} type="text"
-                            placeholder="e.g. CR-2026-0001" value={crNo} onChange={(e) => setCrNo(e.target.value)} />
-                        </span>
-                        <button className="btn sm green" disabled={busy} onClick={() => confirmPayment(i.id, i.invoice_no)}>
-                          {busy ? "Saving…" : "Confirm"}
-                        </button>
-                        <button className="btn sm ghost" disabled={busy} onClick={() => setRecording(null)}>Cancel</button>
-                      </span>
-                    ) : (
-                      <button className="btn sm green" onClick={() => startRecording(i)}>Record payment</button>
-                    )}
+                  <td className="right">
+                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
+                      {i.receipt_name && (
+                        <button className="btn sm ghost" onClick={() => view(i.id)}>View</button>
+                      )}
+                      {i.ewt_name && (
+                        <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>
+                      )}
+                      <label className="btn sm ghost" style={{ display: "inline-block", cursor: ewtBusy === i.id ? "default" : "pointer" }}>
+                        {ewtBusy === i.id ? "Uploading…" : i.ewt_name ? "Replace 2307" : "Upload 2307"}
+                        <input type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ display: "none" }} disabled={ewtBusy === i.id}
+                          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadEwt(i.id, i.invoice_no, f); e.target.value = ""; }} />
+                      </label>
+                      {recording === i.id ? (
+                        <>
+                          <span className="inputgroup">
+                            <span className="lbl">Received</span>
+                            <input className="f num" style={{ width: 100, marginBottom: 0 }} type="number" min={0} step="0.01"
+                              value={amountReceived} onChange={(e) => setAmountReceived(e.target.value)} />
+                          </span>
+                          <span className="inputgroup">
+                            <span className="lbl">EWT</span>
+                            <input className="f num" style={{ width: 90, marginBottom: 0 }} type="number" min={0} step="0.01"
+                              value={ewtAmount} onChange={(e) => setEwtAmount(e.target.value)} />
+                          </span>
+                          <span className="inputgroup">
+                            <span className="lbl">Discount</span>
+                            <input className="f num" style={{ width: 90, marginBottom: 0 }} type="number" min={0} step="0.01"
+                              value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} />
+                          </span>
+                          <span className="inputgroup">
+                            <span className="lbl">CR # (optional)</span>
+                            <input className="f" style={{ width: 130, marginBottom: 0 }} type="text"
+                              placeholder="e.g. CR-2026-0001" value={crNo} onChange={(e) => setCrNo(e.target.value)} />
+                          </span>
+                          <button className="btn sm green" disabled={busy} onClick={() => confirmPayment(i.id, i.invoice_no)}>
+                            {busy ? "Saving…" : "Confirm"}
+                          </button>
+                          <button className="btn sm ghost" disabled={busy} onClick={() => setRecording(null)}>Cancel</button>
+                        </>
+                      ) : (
+                        <button className="btn sm green" onClick={() => startRecording(i)}>Record payment</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
