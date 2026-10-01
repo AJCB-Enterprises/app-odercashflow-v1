@@ -108,7 +108,7 @@ export default function Receipts() {
                   <td className="num">{i.receipt_name || <span className="dim">No receipt uploaded</span>}</td>
                   <td className="num">{i.collection_receipt_no || <span className="dim">—</span>}</td>
                   <td className="num">{i.receipt_uploaded_at ? fmtTime(i.receipt_uploaded_at) : "—"}</td>
-                  <td className="right" style={{ whiteSpace: "nowrap" }}>
+                  <td className="right">
                     {i.receipt_name && (
                       <>
                         <button className="btn sm ghost" onClick={() => view(i.id)}>View</button>{" "}

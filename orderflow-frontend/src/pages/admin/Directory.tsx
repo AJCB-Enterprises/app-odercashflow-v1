@@ -315,7 +315,7 @@ export function ClientDetail() {
                 </td>
                 <td className="num">{fmtDate(i.due_date)}</td>
                 <td><InvoiceChip inv={i} /></td>
-                <td className="right" style={{ whiteSpace: "nowrap" }}>
+                <td className="right">
                   {i.receipt_name && (
                     <>
                       <button className="btn sm ghost" onClick={() => viewReceipt(i.id)}>View receipt</button>{" "}
