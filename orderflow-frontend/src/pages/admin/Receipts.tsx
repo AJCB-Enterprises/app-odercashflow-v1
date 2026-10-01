@@ -2,6 +2,20 @@ import { useState } from "react";
 import { api, fmtTime, peso } from "../../api";
 import { Card, ErrorBox, Loading, useData, useToast } from "../../components";
 
+// Clients upload from their own phone/browser, so the "original" filename is
+// whatever their device gave it — sometimes a long generated name (a camera
+// upload, a file shared via a messaging app). We never alter the stored
+// name itself, just how much of it we show in this narrow column; the full
+// name is still in the title tooltip and in the downloaded file.
+const truncateFilename = (name: string, max = 28) => {
+  if (name.length <= max) return name;
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot) : "";
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const keep = Math.max(4, max - ext.length - 1);
+  return `${base.slice(0, keep)}…${ext}`;
+};
+
 export default function Receipts() {
   const { data, error, loading, reload } = useData<any[]>(() => api.get("/invoices?state=open"), []);
   const toast = useToast();
@@ -109,7 +123,9 @@ export default function Receipts() {
                   <td className="num right">{peso(i.balance_due)}</td>
                   <td className="num">
                     <div style={{ maxWidth: 160, wordBreak: "break-word", whiteSpace: "normal" }}>
-                      {i.receipt_name || <span className="dim">No receipt uploaded</span>}
+                      {i.receipt_name
+                        ? <span title={i.receipt_name}>{truncateFilename(i.receipt_name)}</span>
+                        : <span className="dim">No receipt uploaded</span>}
                     </div>
                   </td>
                   <td className="num">{i.collection_receipt_no || <span className="dim">—</span>}</td>
