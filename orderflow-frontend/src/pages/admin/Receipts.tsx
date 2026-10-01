@@ -100,12 +100,18 @@ export default function Receipts() {
               {(data || []).map((i) => (
                 <tr key={i.id}>
                   <td className="num strong">{i.invoice_no}</td>
-                  <td style={{ maxWidth: 220, wordBreak: "break-word" }}>
-                    {i.company_name}
-                    {i.collects_in_person && <span className="chip amber" style={{ marginLeft: 8 }}>Check/in-person</span>}
+                  <td>
+                    <div style={{ maxWidth: 220, wordBreak: "break-word" }}>
+                      {i.company_name}
+                      {i.collects_in_person && <span className="chip amber" style={{ marginLeft: 8 }}>Check/in-person</span>}
+                    </div>
                   </td>
                   <td className="num right">{peso(i.balance_due)}</td>
-                  <td className="num">{i.receipt_name || <span className="dim">No receipt uploaded</span>}</td>
+                  <td className="num">
+                    <div style={{ maxWidth: 160, wordBreak: "break-word", whiteSpace: "normal" }}>
+                      {i.receipt_name || <span className="dim">No receipt uploaded</span>}
+                    </div>
+                  </td>
                   <td className="num">{i.collection_receipt_no || <span className="dim">—</span>}</td>
                   <td className="num">{i.receipt_uploaded_at ? fmtTime(i.receipt_uploaded_at) : "—"}</td>
                   <td className="right">

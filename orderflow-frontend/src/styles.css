@@ -38,7 +38,7 @@ h1.page{font-family:var(--cond);font-weight:700;font-size:26px;letter-spacing:.0
 .card-h .hint{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto}
 .card-b{padding:16px}
 .tablewrap{overflow-x:auto}
-table.ledger{min-width:100%;border-collapse:collapse}
+table.ledger{border-collapse:collapse}
 .ledger th{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:500;padding:10px 16px;border-bottom:1px solid var(--rule2)}
 .ledger td{padding:11px 16px;border-bottom:1px solid var(--rule);vertical-align:top}
 .ledger tr:last-child td{border-bottom:none}
