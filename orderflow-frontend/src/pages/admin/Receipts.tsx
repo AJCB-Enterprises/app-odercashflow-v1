@@ -100,7 +100,7 @@ export default function Receipts() {
               {(data || []).map((i) => (
                 <tr key={i.id}>
                   <td className="num strong">{i.invoice_no}</td>
-                  <td>
+                  <td style={{ maxWidth: 220, wordBreak: "break-word" }}>
                     {i.company_name}
                     {i.collects_in_person && <span className="chip amber" style={{ marginLeft: 8 }}>Check/in-person</span>}
                   </td>
@@ -108,24 +108,20 @@ export default function Receipts() {
                   <td className="num">{i.receipt_name || <span className="dim">No receipt uploaded</span>}</td>
                   <td className="num">{i.collection_receipt_no || <span className="dim">—</span>}</td>
                   <td className="num">{i.receipt_uploaded_at ? fmtTime(i.receipt_uploaded_at) : "—"}</td>
-                  <td className="right">
+                  <td className="right" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                     {i.receipt_name && (
-                      <>
-                        <button className="btn sm ghost" onClick={() => view(i.id)}>View</button>{" "}
-                      </>
+                      <button className="btn sm ghost" onClick={() => view(i.id)}>View</button>
                     )}
                     {i.ewt_name && (
-                      <>
-                        <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>{" "}
-                      </>
+                      <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>
                     )}
                     <label className="btn sm ghost" style={{ display: "inline-block", cursor: ewtBusy === i.id ? "default" : "pointer" }}>
                       {ewtBusy === i.id ? "Uploading…" : i.ewt_name ? "Replace 2307" : "Upload 2307"}
                       <input type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ display: "none" }} disabled={ewtBusy === i.id}
                         onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadEwt(i.id, i.invoice_no, f); e.target.value = ""; }} />
-                    </label>{" "}
+                    </label>
                     {recording === i.id ? (
-                      <span style={{ display: "inline-flex", gap: 6, alignItems: "flex-end" }}>
+                      <span style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "flex-end", justifyContent: "flex-end" }}>
                         <span className="inputgroup">
                           <span className="lbl">Received</span>
                           <input className="f num" style={{ width: 100, marginBottom: 0 }} type="number" min={0} step="0.01"
