@@ -29,6 +29,17 @@ const createOrderLimiter = rateLimit({
   message: { error: "Too many orders submitted, try again later" },
 });
 
+/**
+ * True when an order line's description matches (case-insensitive, trimmed) an
+ * active price-list product currently flagged out of stock. Order lines are
+ * free text, not linked to products, so this is a best-effort match on
+ * description — a renamed or hand-typed item simply won't be flagged.
+ */
+const OUT_OF_STOCK_SQL = (itemAlias: string) =>
+  `EXISTS (SELECT 1 FROM products p
+            WHERE p.active AND NOT p.in_stock
+              AND lower(btrim(p.description)) = lower(btrim(${itemAlias}.description)))`;
+
 /** GET /orders?status=pending — admin sees all; agents see their clients' orders. */
 ordersRouter.get("/", async (req, res) => {
   const user = req.user!;
@@ -47,7 +58,8 @@ ordersRouter.get("/", async (req, res) => {
             u.full_name AS agent_name,
             greatest(0, coalesce(sum(oi.qty * oi.unit_price), 0) - o.discount_amount) AS total,
             o.discount_amount,
-            inv.invoice_no
+            inv.invoice_no,
+            coalesce(bool_or(o.status = 'pending' AND ${OUT_OF_STOCK_SQL("oi")}), false) AS has_out_of_stock
        FROM orders o
        JOIN clients c ON c.id = o.client_id
        LEFT JOIN users u ON u.id = o.created_by
@@ -88,7 +100,12 @@ ordersRouter.get("/:id", async (req, res) => {
   if (order.tin) order.tin = decryptField(order.tin);
 
   const [items, pendingInvoices] = await Promise.all([
-    q("SELECT id, description, qty, unit_price FROM order_items WHERE order_id = $1", [order.id]),
+    q(
+      `SELECT oi.id, oi.description, oi.qty, oi.unit_price,
+              ${OUT_OF_STOCK_SQL("oi")} AS out_of_stock
+         FROM order_items oi WHERE oi.order_id = $1`,
+      [order.id]
+    ),
     q(
       `SELECT id, invoice_no, amount, due_date, status,
               (status = 'unpaid' AND due_date < CURRENT_DATE) AS is_overdue,

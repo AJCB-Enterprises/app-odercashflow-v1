@@ -85,12 +85,26 @@ export default function Products() {
     }
   };
 
+  const toggleStock = async (p: any) => {
+    try {
+      await api.patch(`/products/${p.id}`, { in_stock: !p.in_stock });
+      toast(p.in_stock ? `${p.description} marked out of stock — orders for it will be flagged.` : `${p.description} is back in stock.`);
+      reload();
+    } catch (e: any) {
+      toast(e.message, true);
+    }
+  };
+
   const valid = description.trim() && Number(unitPrice) >= 0 && unitPrice !== "";
 
   return (
     <>
       <h1 className="page">Price list</h1>
-      <p className="pagesub">Products agents can pick from when drafting a quotation — picking one pre-fills description and price, still editable per quote.</p>
+      <p className="pagesub">
+        Products agents can pick from when drafting a quotation or sales order — picking one pre-fills description and
+        price, still editable per line. Mark a product out of stock and any order that includes it is flagged for the
+        reviewer before approval.
+      </p>
 
       <Card title="Add a product">
         <label className="f" htmlFor="pd">Description</label>
@@ -126,7 +140,7 @@ export default function Products() {
       <Card title="Products" pad={false}>
         {loading ? <Loading /> : (
           <table className="ledger">
-            <thead><tr><th>Description</th><th className="right">Unit price</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>Description</th><th className="right">Unit price</th><th>Status</th><th>Stock</th><th /></tr></thead>
             <tbody>
               {(data || []).map((p) => (
                 <tr key={p.id}>
@@ -138,6 +152,7 @@ export default function Products() {
                           value={editUnitPrice} onChange={(e) => setEditUnitPrice(e.target.value)} />
                       </td>
                       <td>{p.active ? <span className="chip green">Active</span> : <span className="chip amber">Inactive</span>}</td>
+                      <td>{p.in_stock ? <span className="chip green">In stock</span> : <span className="chip red">Out of stock</span>}</td>
                       <td>
                         <button className="btn sm" disabled={editBusy} onClick={saveEdit}>{editBusy ? "Saving…" : "Save"}</button>{" "}
                         <button className="btn sm ghost" onClick={() => setEditId(null)}>Cancel</button>
@@ -148,7 +163,11 @@ export default function Products() {
                       <td>{p.description}</td>
                       <td className="num right">{peso(p.unit_price)}</td>
                       <td>{p.active ? <span className="chip green">Active</span> : <span className="chip amber">Inactive</span>}</td>
+                      <td>{p.in_stock ? <span className="chip green">In stock</span> : <span className="chip red">Out of stock</span>}</td>
                       <td>
+                        <button className="btn sm ghost" onClick={() => toggleStock(p)}>
+                          {p.in_stock ? "Mark out of stock" : "Mark in stock"}
+                        </button>{" "}
                         <button className="btn sm ghost" onClick={() => startEdit(p)}>Edit</button>{" "}
                         <button className="btn sm ghost" onClick={() => toggleActive(p)}>
                           {p.active ? "Deactivate" : "Reactivate"}
@@ -158,7 +177,7 @@ export default function Products() {
                   )}
                 </tr>
               ))}
-              {!data?.length && <tr><td colSpan={4} className="empty">No products yet — add one above.</td></tr>}
+              {!data?.length && <tr><td colSpan={5} className="empty">No products yet — add one above.</td></tr>}
             </tbody>
           </table>
         )}

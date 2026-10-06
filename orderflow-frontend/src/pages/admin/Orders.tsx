@@ -27,7 +27,12 @@ export function OrderList() {
                   <td>{o.agent_name || <span className="dim">—</span>}</td>
                   <td className="num right">{peso(o.total)}</td>
                   <td className="num">{fmtDate(o.created_at)}</td>
-                  <td><OrderChip status={o.status} /></td>
+                  <td>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      <OrderChip status={o.status} />
+                      {o.has_out_of_stock && <span className="chip red">Out-of-stock item</span>}
+                    </div>
+                  </td>
                 </tr>
               ))}
               {!data?.length && <tr><td colSpan={7} className="empty">No orders yet.</td></tr>}
@@ -58,6 +63,7 @@ export function OrderDetail() {
   if (loading) return <Loading />;
   if (error || !data) return <ErrorBox msg={error || "Order not found"} />;
   const { order, items, pending_invoices } = data;
+  const outOfStockItems = items.filter((it: any) => it.out_of_stock);
   const subtotal = items.reduce((s: number, it: any) => s + Number(it.qty) * Number(it.unit_price), 0);
   const discountAmount = Number(order.discount_amount) || 0;
   const total = Math.max(0, subtotal - discountAmount);
@@ -154,6 +160,13 @@ export function OrderDetail() {
     setBusy(true);
     try {
       if (action === "approve") {
+        if (outOfStockItems.length) {
+          const names = outOfStockItems.map((it: any) => `• ${it.description}`).join("\n");
+          if (!window.confirm(`These items are marked out of stock:\n\n${names}\n\nApprove ${order.order_no} anyway?`)) {
+            setBusy(false);
+            return;
+          }
+        }
         const res = await api.post(
           `/orders/${id}/approve`,
           order.consolidated_invoicing ? { dr_no: drNo.trim() } : { invoice_no: invoiceNo.trim() }
@@ -272,7 +285,10 @@ export function OrderDetail() {
           <tbody>
             {items.map((it: any, i: number) => (
               <tr key={it.id}>
-                <td>{it.description}</td>
+                <td>
+                  {it.description}
+                  {order.status === "pending" && it.out_of_stock && <span className="chip red" style={{ marginLeft: 8 }}>Out of stock</span>}
+                </td>
                 <td className="num right">{Number(it.qty)}</td>
                 <td className="num right">{peso(it.unit_price)}</td>
                 <td className="num right">{peso(Number(it.qty) * Number(it.unit_price))}</td>
@@ -326,6 +342,13 @@ export function OrderDetail() {
 
       {order.status === "pending" && (
         <Card title="Decision">
+          {outOfStockItems.length > 0 && (
+            <p style={{ marginBottom: 14, color: "var(--red)" }}>
+              {outOfStockItems.length === 1 ? "1 item on this order is" : `${outOfStockItems.length} items on this order are`} marked out of
+              stock on the price list ({outOfStockItems.map((it: any) => it.description).join(", ")}). Confirm availability with the
+              client or agent before approving, or reject with a note.
+            </p>
+          )}
           {order.consolidated_invoicing ? (
             <>
               <p className="dim" style={{ marginBottom: 10 }}>

@@ -46,6 +46,9 @@ export function AgentClients() {
 /* ---- New sales order ---- */
 export function AgentNewOrder() {
   const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
+  const { data: products } = useData<any[]>(() => api.get("/products"), []);
+  const activeProducts = (products || []).filter((p) => p.active);
+  const outOfStock = new Set(activeProducts.filter((p) => !p.in_stock).map((p) => p.description.trim().toLowerCase()));
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
   const [discount, setDiscount] = useState("");
@@ -60,6 +63,11 @@ export function AgentNewOrder() {
 
   const setItem = (i: number, k: string, v: string) =>
     setItems((its) => its.map((it, j) => (j === i ? { ...it, [k]: v } : it)));
+  const pickProduct = (i: number, productId: string) => {
+    const p = activeProducts.find((p) => p.id === productId);
+    if (!p) return;
+    setItems((its) => its.map((it, j) => (j === i ? { ...it, description: p.description, unit_price: String(p.unit_price) } : it)));
+  };
   const clean = items
     .filter((it) => it.description.trim() && Number(it.qty) > 0 && Number(it.unit_price) > 0)
     .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
@@ -162,15 +170,31 @@ export function AgentNewOrder() {
             </p>
           )}
           {items.map((it, i) => (
-            <div className="itemrow" key={i}>
-              <input className="f" placeholder="Item description" value={it.description}
-                onChange={(e) => setItem(i, "description", e.target.value)} aria-label={`Item ${i + 1} description`} />
-              <input className="f num" type="number" min={1} placeholder="Qty" value={it.qty}
-                onChange={(e) => setItem(i, "qty", e.target.value)} aria-label={`Item ${i + 1} quantity`} />
-              <input className="f num" type="number" min={0} step="0.01" placeholder="Unit ₱" value={it.unit_price}
-                onChange={(e) => setItem(i, "unit_price", e.target.value)} aria-label={`Item ${i + 1} unit price`} />
-              <button className="btn sm ghost" disabled={items.length === 1} aria-label={`Remove item ${i + 1}`}
-                onClick={() => setItems((its) => its.filter((_, j) => j !== i))}>×</button>
+            <div key={i}>
+              <div className={activeProducts.length > 0 ? "itemrow-q" : "itemrow"}>
+                {activeProducts.length > 0 && (
+                  <select className="f" style={{ marginBottom: 0 }} value="" onChange={(e) => pickProduct(i, e.target.value)}
+                    aria-label={`Item ${i + 1} pick from price list`}>
+                    <option value="">Pick from price list…</option>
+                    {activeProducts.map((p) => (
+                      <option key={p.id} value={p.id}>{p.description} — {peso(p.unit_price)}{p.in_stock ? "" : " (out of stock)"}</option>
+                    ))}
+                  </select>
+                )}
+                <input className="f" placeholder="Item description" value={it.description}
+                  onChange={(e) => setItem(i, "description", e.target.value)} aria-label={`Item ${i + 1} description`} />
+                <input className="f num" type="number" min={1} placeholder="Qty" value={it.qty}
+                  onChange={(e) => setItem(i, "qty", e.target.value)} aria-label={`Item ${i + 1} quantity`} />
+                <input className="f num" type="number" min={0} step="0.01" placeholder="Unit ₱" value={it.unit_price}
+                  onChange={(e) => setItem(i, "unit_price", e.target.value)} aria-label={`Item ${i + 1} unit price`} />
+                <button className="btn sm ghost" disabled={items.length === 1} aria-label={`Remove item ${i + 1}`}
+                  onClick={() => setItems((its) => its.filter((_, j) => j !== i))}>×</button>
+              </div>
+              {outOfStock.has(it.description.trim().toLowerCase()) && (
+                <p style={{ marginTop: -2, marginBottom: 10, fontSize: 12.5, color: "var(--red)" }}>
+                  "{it.description.trim()}" is currently out of stock — check availability with admin before submitting.
+                </p>
+              )}
             </div>
           ))}
           <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>
@@ -251,6 +275,9 @@ export function AgentOrderDetail() {
   const navigate = useNavigate();
   const toast = useToast();
   const { data, error, loading, reload } = useData<any>(() => api.get(`/orders/${id}`), [id]);
+  const { data: products } = useData<any[]>(() => api.get("/products"), []);
+  const activeProducts = (products || []).filter((p) => p.active);
+  const outOfStock = new Set(activeProducts.filter((p) => !p.in_stock).map((p) => p.description.trim().toLowerCase()));
 
   const [seeded, setSeeded] = useState(false);
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
@@ -279,6 +306,11 @@ export function AgentOrderDetail() {
 
   const setItem = (i: number, k: string, v: string) =>
     setItems((its) => its.map((it, j) => (j === i ? { ...it, [k]: v } : it)));
+  const pickProduct = (i: number, productId: string) => {
+    const p = activeProducts.find((p) => p.id === productId);
+    if (!p) return;
+    setItems((its) => its.map((it, j) => (j === i ? { ...it, description: p.description, unit_price: String(p.unit_price) } : it)));
+  };
   const clean = items
     .filter((it) => it.description.trim() && Number(it.qty) > 0 && Number(it.unit_price) > 0)
     .map((it) => ({ description: it.description.trim(), qty: Number(it.qty), unit_price: Number(it.unit_price) }));
@@ -367,15 +399,31 @@ export function AgentOrderDetail() {
           )}
           <label className="f">Line items</label>
           {items.map((it, i) => (
-            <div className="itemrow" key={i}>
-              <input className="f" placeholder="Item description" value={it.description}
-                onChange={(e) => setItem(i, "description", e.target.value)} aria-label={`Item ${i + 1} description`} />
-              <input className="f num" type="number" min={1} placeholder="Qty" value={it.qty}
-                onChange={(e) => setItem(i, "qty", e.target.value)} aria-label={`Item ${i + 1} quantity`} />
-              <input className="f num" type="number" min={0} step="0.01" placeholder="Unit ₱" value={it.unit_price}
-                onChange={(e) => setItem(i, "unit_price", e.target.value)} aria-label={`Item ${i + 1} unit price`} />
-              <button className="btn sm ghost" disabled={items.length === 1} aria-label={`Remove item ${i + 1}`}
-                onClick={() => setItems((its) => its.filter((_, j) => j !== i))}>×</button>
+            <div key={i}>
+              <div className={activeProducts.length > 0 ? "itemrow-q" : "itemrow"}>
+                {activeProducts.length > 0 && (
+                  <select className="f" style={{ marginBottom: 0 }} value="" onChange={(e) => pickProduct(i, e.target.value)}
+                    aria-label={`Item ${i + 1} pick from price list`}>
+                    <option value="">Pick from price list…</option>
+                    {activeProducts.map((p) => (
+                      <option key={p.id} value={p.id}>{p.description} — {peso(p.unit_price)}{p.in_stock ? "" : " (out of stock)"}</option>
+                    ))}
+                  </select>
+                )}
+                <input className="f" placeholder="Item description" value={it.description}
+                  onChange={(e) => setItem(i, "description", e.target.value)} aria-label={`Item ${i + 1} description`} />
+                <input className="f num" type="number" min={1} placeholder="Qty" value={it.qty}
+                  onChange={(e) => setItem(i, "qty", e.target.value)} aria-label={`Item ${i + 1} quantity`} />
+                <input className="f num" type="number" min={0} step="0.01" placeholder="Unit ₱" value={it.unit_price}
+                  onChange={(e) => setItem(i, "unit_price", e.target.value)} aria-label={`Item ${i + 1} unit price`} />
+                <button className="btn sm ghost" disabled={items.length === 1} aria-label={`Remove item ${i + 1}`}
+                  onClick={() => setItems((its) => its.filter((_, j) => j !== i))}>×</button>
+              </div>
+              {outOfStock.has(it.description.trim().toLowerCase()) && (
+                <p style={{ marginTop: -2, marginBottom: 10, fontSize: 12.5, color: "var(--red)" }}>
+                  "{it.description.trim()}" is currently out of stock — check availability with admin before submitting.
+                </p>
+              )}
             </div>
           ))}
           <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>

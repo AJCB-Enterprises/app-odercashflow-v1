@@ -31,7 +31,7 @@ const importLimiter = rateLimit({
 /** GET /products — the full price list, active and inactive alike; callers filter as needed. */
 productsRouter.get("/", async (_req, res) => {
   const rows = await q(
-    "SELECT id, description, unit_price, active, created_at FROM products ORDER BY description"
+    "SELECT id, description, unit_price, active, in_stock, created_at FROM products ORDER BY description"
   );
   res.json(rows);
 });
@@ -59,9 +59,10 @@ const ProductPatchBody = z.object({
   description: z.string().trim().min(1).optional(),
   unit_price: z.number().min(0).optional(),
   active: z.boolean().optional(),
+  in_stock: z.boolean().optional(),
 });
 
-/** PATCH /products/:id — admin edits a product's description/price, or activates/deactivates it. */
+/** PATCH /products/:id — admin edits a product's description/price, activates/deactivates it, or flips its stock flag. */
 productsRouter.patch("/:id", manageProducts, async (req, res) => {
   const user = req.user!;
   const id = String(req.params.id);
@@ -74,10 +75,11 @@ productsRouter.patch("/:id", manageProducts, async (req, res) => {
   const description = parsed.data.description ?? (existing as any).description;
   const unitPrice = parsed.data.unit_price ?? (existing as any).unit_price;
   const active = parsed.data.active ?? (existing as any).active;
+  const inStock = parsed.data.in_stock ?? (existing as any).in_stock;
 
   const product = await one(
-    "UPDATE products SET description = $1, unit_price = $2, active = $3 WHERE id = $4 RETURNING *",
-    [description, unitPrice, active, id]
+    "UPDATE products SET description = $1, unit_price = $2, active = $3, in_stock = $4 WHERE id = $5 RETURNING *",
+    [description, unitPrice, active, inStock, id]
   );
   await audit(user.id, "product.updated", "product", id, parsed.data);
   res.json(product);
