@@ -43,14 +43,46 @@ export function AgentClients() {
   );
 }
 
+type StockMatch = { product: string; similar: boolean } | null;
+
+// Asks the server which line descriptions match (or resemble) an out-of-stock
+// price-list product, so the warning uses the same matching admin review does.
+// Best-effort: a failed check just means no warning.
+const useStockCheck = (items: { description: string }[]) => {
+  const [matches, setMatches] = useState<Record<string, StockMatch>>({});
+  const key = JSON.stringify(Array.from(new Set(items.map((it) => it.description.trim()).filter((d) => d.length >= 3))));
+  useEffect(() => {
+    const descriptions: string[] = JSON.parse(key);
+    if (!descriptions.length) return;
+    const t = setTimeout(() => {
+      api.post<{ description: string; match: StockMatch }[]>("/products/stock-check", { descriptions })
+        .then((rows) => setMatches(Object.fromEntries(rows.map((r) => [r.description, r.match]))))
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [key]);
+  return (description: string): StockMatch => matches[description.trim()] ?? null;
+};
+
+function StockWarning({ description, match }: { description: string; match: StockMatch }) {
+  if (!match) return null;
+  return (
+    <p style={{ marginTop: -2, marginBottom: 10, fontSize: 12.5, color: "var(--red)" }}>
+      {match.similar
+        ? `"${description}" looks like "${match.product}", which is out of stock — check availability with admin before submitting.`
+        : `"${description}" is currently out of stock — check availability with admin before submitting.`}
+    </p>
+  );
+}
+
 /* ---- New sales order ---- */
 export function AgentNewOrder() {
   const { data: clients, error, loading } = useData<any[]>(() => api.get("/clients"), []);
   const { data: products } = useData<any[]>(() => api.get("/products"), []);
   const activeProducts = (products || []).filter((p) => p.active);
-  const outOfStock = new Set(activeProducts.filter((p) => !p.in_stock).map((p) => p.description.trim().toLowerCase()));
   const [clientId, setClientId] = useState("");
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
+  const stockFor = useStockCheck(items);
   const [discount, setDiscount] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("net_30");
   const [poDate, setPoDate] = useState("");
@@ -190,11 +222,7 @@ export function AgentNewOrder() {
                 <button className="btn sm ghost" disabled={items.length === 1} aria-label={`Remove item ${i + 1}`}
                   onClick={() => setItems((its) => its.filter((_, j) => j !== i))}>×</button>
               </div>
-              {outOfStock.has(it.description.trim().toLowerCase()) && (
-                <p style={{ marginTop: -2, marginBottom: 10, fontSize: 12.5, color: "var(--red)" }}>
-                  "{it.description.trim()}" is currently out of stock — check availability with admin before submitting.
-                </p>
-              )}
+              <StockWarning description={it.description.trim()} match={stockFor(it.description)} />
             </div>
           ))}
           <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>
@@ -277,10 +305,10 @@ export function AgentOrderDetail() {
   const { data, error, loading, reload } = useData<any>(() => api.get(`/orders/${id}`), [id]);
   const { data: products } = useData<any[]>(() => api.get("/products"), []);
   const activeProducts = (products || []).filter((p) => p.active);
-  const outOfStock = new Set(activeProducts.filter((p) => !p.in_stock).map((p) => p.description.trim().toLowerCase()));
 
   const [seeded, setSeeded] = useState(false);
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
+  const stockFor = useStockCheck(items);
   const [discount, setDiscount] = useState("");
   const [poDate, setPoDate] = useState("");
   const [poNumber, setPoNumber] = useState("");
@@ -419,11 +447,7 @@ export function AgentOrderDetail() {
                 <button className="btn sm ghost" disabled={items.length === 1} aria-label={`Remove item ${i + 1}`}
                   onClick={() => setItems((its) => its.filter((_, j) => j !== i))}>×</button>
               </div>
-              {outOfStock.has(it.description.trim().toLowerCase()) && (
-                <p style={{ marginTop: -2, marginBottom: 10, fontSize: 12.5, color: "var(--red)" }}>
-                  "{it.description.trim()}" is currently out of stock — check availability with admin before submitting.
-                </p>
-              )}
+              <StockWarning description={it.description.trim()} match={stockFor(it.description)} />
             </div>
           ))}
           <button className="btn sm ghost" onClick={() => setItems((its) => [...its, { description: "", qty: "1", unit_price: "" }])}>

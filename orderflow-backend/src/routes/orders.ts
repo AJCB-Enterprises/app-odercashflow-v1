@@ -8,6 +8,7 @@ import { audit, notifyAdmins, notifyUser } from "../lib/notify";
 import { sendMail } from "../lib/email";
 import { config } from "../config";
 import { decryptField } from "../lib/crypto";
+import { findOutOfStockMatch } from "../lib/stock-match";
 import { readOrderAttachment, saveOrderAttachment, sanitizeFilename, validateUpload } from "../lib/storage";
 import rateLimit from "express-rate-limit";
 import { sendOrderApprovedNotice, sendPaymentReminder } from "../worker/reminders";
@@ -29,16 +30,9 @@ const createOrderLimiter = rateLimit({
   message: { error: "Too many orders submitted, try again later" },
 });
 
-/**
- * True when an order line's description matches (case-insensitive, trimmed) an
- * active price-list product currently flagged out of stock. Order lines are
- * free text, not linked to products, so this is a best-effort match on
- * description — a renamed or hand-typed item simply won't be flagged.
- */
-const OUT_OF_STOCK_SQL = (itemAlias: string) =>
-  `EXISTS (SELECT 1 FROM products p
-            WHERE p.active AND NOT p.in_stock
-              AND lower(btrim(p.description)) = lower(btrim(${itemAlias}.description)))`;
+/** Active price-list products, for flagging order lines that refer to an out-of-stock one. */
+const activeProductsForStock = () =>
+  q<{ description: string; in_stock: boolean }>("SELECT description, in_stock FROM products WHERE active");
 
 /** GET /orders?status=pending — admin sees all; agents see their clients' orders. */
 ordersRouter.get("/", async (req, res) => {
@@ -58,8 +52,7 @@ ordersRouter.get("/", async (req, res) => {
             u.full_name AS agent_name,
             greatest(0, coalesce(sum(oi.qty * oi.unit_price), 0) - o.discount_amount) AS total,
             o.discount_amount,
-            inv.invoice_no,
-            coalesce(bool_or(o.status = 'pending' AND ${OUT_OF_STOCK_SQL("oi")}), false) AS has_out_of_stock
+            inv.invoice_no
        FROM orders o
        JOIN clients c ON c.id = o.client_id
        LEFT JOIN users u ON u.id = o.created_by
@@ -75,7 +68,22 @@ ordersRouter.get("/", async (req, res) => {
       ORDER BY (o.status = 'pending') DESC, o.created_at DESC`,
     params
   );
-  res.json(rows);
+
+  // Flag pending orders with a line that matches an out-of-stock product, so
+  // the reviewer sees it from the list without opening each order.
+  const pendingIds = rows.filter((o: any) => o.status === "pending").map((o: any) => o.id);
+  const flagged = new Set<string>();
+  if (pendingIds.length) {
+    const [products, lines] = await Promise.all([
+      activeProductsForStock(),
+      q<{ order_id: string; description: string }>(
+        "SELECT order_id, description FROM order_items WHERE order_id = ANY($1::uuid[])",
+        [pendingIds]
+      ),
+    ]);
+    for (const l of lines) if (findOutOfStockMatch(l.description, products)) flagged.add(l.order_id);
+  }
+  res.json(rows.map((o: any) => ({ ...o, has_out_of_stock: flagged.has(o.id) })));
 });
 
 /**
@@ -100,12 +108,7 @@ ordersRouter.get("/:id", async (req, res) => {
   if (order.tin) order.tin = decryptField(order.tin);
 
   const [items, pendingInvoices] = await Promise.all([
-    q(
-      `SELECT oi.id, oi.description, oi.qty, oi.unit_price,
-              ${OUT_OF_STOCK_SQL("oi")} AS out_of_stock
-         FROM order_items oi WHERE oi.order_id = $1`,
-      [order.id]
-    ),
+    q("SELECT id, description, qty, unit_price FROM order_items WHERE order_id = $1", [order.id]),
     q(
       `SELECT id, invoice_no, amount, due_date, status,
               (status = 'unpaid' AND due_date < CURRENT_DATE) AS is_overdue,
@@ -116,7 +119,12 @@ ordersRouter.get("/:id", async (req, res) => {
       [order.client_id]
     ),
   ]);
-  res.json({ order, items, pending_invoices: pendingInvoices });
+  const products = await activeProductsForStock();
+  const flaggedItems = items.map((it: any) => {
+    const match = findOutOfStockMatch(it.description, products);
+    return { ...it, out_of_stock: !!match, stock_match: match?.product ?? null, stock_match_similar: match?.similar ?? false };
+  });
+  res.json({ order, items: flaggedItems, pending_invoices: pendingInvoices });
 });
 
 /** Shared by order creation and order revision — line items, discount, and the client's own PO reference. */

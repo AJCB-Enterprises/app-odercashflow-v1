@@ -6,6 +6,7 @@ import { one, q, tx } from "../db";
 import { requireAdminPermission, requireAuth } from "../middleware/auth";
 import { audit } from "../lib/notify";
 import { config } from "../config";
+import { findOutOfStockMatch } from "../lib/stock-match";
 
 export const productsRouter = Router();
 productsRouter.use(requireAuth);
@@ -34,6 +35,22 @@ productsRouter.get("/", async (_req, res) => {
     "SELECT id, description, unit_price, active, in_stock, created_at FROM products ORDER BY description"
   );
   res.json(rows);
+});
+
+const StockCheckBody = z.object({ descriptions: z.array(z.string()).max(100) });
+
+/**
+ * POST /products/stock-check — for each order-line description, the
+ * out-of-stock price-list product it matches or resembles, or null. Used by
+ * the agent order form so it warns using the same matching as admin review.
+ */
+productsRouter.post("/stock-check", async (req, res) => {
+  const parsed = StockCheckBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  const products = await q<{ description: string; in_stock: boolean }>(
+    "SELECT description, in_stock FROM products WHERE active"
+  );
+  res.json(parsed.data.descriptions.map((description) => ({ description, match: findOutOfStockMatch(description, products) })));
 });
 
 const ProductBody = z.object({

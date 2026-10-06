@@ -3,6 +3,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
 import { Card, ErrorBox, InvoiceChip, Loading, OrderChip, PAYMENT_TERM_OPTIONS, useData, useToast, VAT_STATUS_OPTIONS } from "../../components";
 
+// An exact name match is "out of stock"; a reworded/typo'd line that merely
+// resembles an out-of-stock product is only "possibly" out of stock.
+const stockLabel = (it: any) => (it.stock_match_similar ? `${it.description} (similar to ${it.stock_match})` : it.description);
+
 export function OrderList() {
   const { data, error, loading } = useData<any[]>(() => api.get("/orders"), []);
   const navigate = useNavigate();
@@ -161,8 +165,8 @@ export function OrderDetail() {
     try {
       if (action === "approve") {
         if (outOfStockItems.length) {
-          const names = outOfStockItems.map((it: any) => `• ${it.description}`).join("\n");
-          if (!window.confirm(`These items are marked out of stock:\n\n${names}\n\nApprove ${order.order_no} anyway?`)) {
+          const names = outOfStockItems.map((it: any) => `• ${stockLabel(it)}`).join("\n");
+          if (!window.confirm(`These items are marked out of stock, or look like items that are:\n\n${names}\n\nApprove ${order.order_no} anyway?`)) {
             setBusy(false);
             return;
           }
@@ -287,7 +291,12 @@ export function OrderDetail() {
               <tr key={it.id}>
                 <td>
                   {it.description}
-                  {order.status === "pending" && it.out_of_stock && <span className="chip red" style={{ marginLeft: 8 }}>Out of stock</span>}
+                  {order.status === "pending" && it.out_of_stock && (
+                    <span className="chip red" style={{ marginLeft: 8 }}
+                      title={it.stock_match_similar ? `Looks like "${it.stock_match}", which is out of stock` : undefined}>
+                      {it.stock_match_similar ? "Possibly out of stock" : "Out of stock"}
+                    </span>
+                  )}
                 </td>
                 <td className="num right">{Number(it.qty)}</td>
                 <td className="num right">{peso(it.unit_price)}</td>
@@ -344,9 +353,9 @@ export function OrderDetail() {
         <Card title="Decision">
           {outOfStockItems.length > 0 && (
             <p style={{ marginBottom: 14, color: "var(--red)" }}>
-              {outOfStockItems.length === 1 ? "1 item on this order is" : `${outOfStockItems.length} items on this order are`} marked out of
-              stock on the price list ({outOfStockItems.map((it: any) => it.description).join(", ")}). Confirm availability with the
-              client or agent before approving, or reject with a note.
+              {outOfStockItems.length === 1 ? "1 item on this order is" : `${outOfStockItems.length} items on this order are`} out of
+              stock on the price list, or look like items that are ({outOfStockItems.map(stockLabel).join(", ")}). Confirm availability
+              with the client or agent before approving, or reject with a note.
             </p>
           )}
           {order.consolidated_invoicing ? (
