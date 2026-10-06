@@ -48,6 +48,7 @@ export default function Shell() {
               <NavItem to="/admin/reminders" label="Reminder scheduling" />
               {user.can_manage_agents !== false && <NavItem to="/admin/agents" label="Agent accounts" />}
               <NavItem to="/admin/mapping" label="Agent–client mapping" />
+              <NavItem to="/admin/sales" label="Sales performance" />
               <NavItem to="/admin/directory" label="Customer directory" />
               {user.can_manage_products && <NavItem to="/admin/products" label="Price list" />}
               {user.can_manage_announcements !== false && <NavItem to="/admin/announcements" label="Announcements" />}
@@ -60,6 +61,7 @@ export default function Shell() {
               <NavItem to="/agent/clients" label="My assigned clients" />
               <NavItem to="/agent/new-order" label="New sales order" />
               <NavItem to="/agent/orders" label="Orders by client" />
+              <NavItem to="/agent/sales" label="Sales performance" />
               <NavItem to="/agent/new-quotation" label="New quotation" />
               <NavItem to="/agent/quotations" label="Quotations by client" />
               <NavItem to="/agent/invoices" label="Client past invoices" />

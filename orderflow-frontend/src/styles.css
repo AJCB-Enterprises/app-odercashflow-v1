@@ -125,3 +125,9 @@ textarea.f{resize:vertical}
   .itemrow button,.itemrow-q button{width:auto;align-self:flex-end}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.pbar{height:10px;background:var(--rule);overflow:hidden}
+.pbar>span{display:block;height:100%;background:var(--blue)}
+.pbar.done>span{background:var(--green)}
+.metrics{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:14px}
+.metric .mlbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.metric .mval{font-size:22px;font-weight:600;font-family:var(--mono)}

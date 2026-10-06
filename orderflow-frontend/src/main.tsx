@@ -19,6 +19,8 @@ import Mapping from "./pages/admin/Mapping";
 import { Directory, ClientDetail } from "./pages/admin/Directory";
 import Announcements from "./pages/admin/Announcements";
 import Products from "./pages/admin/Products";
+import AgentSales from "./pages/agent/AgentSales";
+import SalesPerformance from "./pages/admin/SalesPerformance";
 import { AgentClients, AgentNewOrder, AgentOrders, AgentOrderDetail, AgentInvoices, AgentNewQuotation, AgentQuotations } from "./pages/agent/AgentPages";
 
 const Home = () => {
@@ -56,6 +58,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/agent/clients" element={<AgentClients />} />
             <Route path="/agent/new-order" element={<AgentNewOrder />} />
             <Route path="/agent/orders" element={<AgentOrders />} />
+            <Route path="/agent/sales" element={<AgentSales />} />
+            <Route path="/admin/sales" element={<SalesPerformance />} />
             <Route path="/agent/orders/:id" element={<AgentOrderDetail />} />
             <Route path="/agent/new-quotation" element={<AgentNewQuotation />} />
             <Route path="/agent/quotations" element={<AgentQuotations />} />
