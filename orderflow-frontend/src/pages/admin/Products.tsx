@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { api, peso } from "../../api";
-import { Card, ErrorBox, Loading, useData, useToast } from "../../components";
+import { Card, ErrorBox, Loading, matchesSearch, SearchBox, useData, useToast } from "../../components";
 
 export default function Products() {
   const { data, error, loading, reload } = useData<any[]>(() => api.get("/products"), []);
   const toast = useToast();
+  const [search, setSearch] = useState("");
 
   const [description, setDescription] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
@@ -96,6 +97,7 @@ export default function Products() {
   };
 
   const valid = description.trim() && Number(unitPrice) >= 0 && unitPrice !== "";
+  const products = (data || []).filter((p) => matchesSearch(search, p.description, p.unit_price));
 
   return (
     <>
@@ -137,12 +139,13 @@ export default function Products() {
       </Card>
 
       {error && <ErrorBox msg={error} />}
+      <SearchBox value={search} onChange={setSearch} label="Search products" placeholder="Search the price list…" />
       <Card title="Products" pad={false}>
         {loading ? <Loading /> : (
           <table className="ledger">
             <thead><tr><th>Description</th><th className="right">Unit price</th><th>Status</th><th>Stock</th><th /></tr></thead>
             <tbody>
-              {(data || []).map((p) => (
+              {products.map((p) => (
                 <tr key={p.id}>
                   {editId === p.id ? (
                     <>
@@ -177,7 +180,9 @@ export default function Products() {
                   )}
                 </tr>
               ))}
-              {!data?.length && <tr><td colSpan={5} className="empty">No products yet — add one above.</td></tr>}
+              {!products.length && (
+                <tr><td colSpan={5} className="empty">{data?.length ? "No products match your search." : "No products yet — add one above."}</td></tr>
+              )}
             </tbody>
           </table>
         )}

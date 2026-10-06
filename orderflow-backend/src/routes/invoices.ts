@@ -48,6 +48,17 @@ const TOTAL_DISCOUNT_SQL = "COALESCE((SELECT SUM(discount_amount) FROM invoice_p
 const BALANCE_TOLERANCE = 1.0;
 
 /**
+ * Admin sometimes types the label along with the number ("CR #20488"), which
+ * then displays as "CR CR #20488" and would never collide with a plain
+ * "20488" in the uniqueness check. Strip just that "CR #" form — a number that
+ * legitimately starts with CR ("CR-2026-0001") is left alone. Empty → null.
+ */
+const normalizeCrNo = (raw: string | null | undefined): string | null => {
+  const cleaned = (raw ?? "").trim().replace(/^cr\s*#\s*/i, "").trim();
+  return cleaned || null;
+};
+
+/**
  * GET /invoices?client_id=&state=open|paid|receipt_uploaded
  * Agents need the can_view_invoices permission and only see their clients.
  */
@@ -247,7 +258,7 @@ invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
   const { amount_received, note } = parsed.data;
   const ewt_amount = parsed.data.ewt_amount ?? 0;
   const discount_amount = parsed.data.discount_amount ?? 0;
-  const crNo = parsed.data.collection_receipt_no || null;
+  const crNo = normalizeCrNo(parsed.data.collection_receipt_no);
   const user = req.user!;
 
   let result: { invoice: any; balance_due: number; fully_paid: boolean } | null;
@@ -308,5 +319,127 @@ invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
   }
 
   if (!result) return res.status(409).json({ error: "Invoice is already paid or void" });
+  res.json(result);
+});
+
+/** GET /invoices/:id/payments — the payment entries recorded against one invoice, oldest first. */
+invoicesRouter.get("/:id/payments", requireAdmin, async (req, res) => {
+  const inv = await one("SELECT id, invoice_no, amount, status FROM invoices WHERE id = $1", [req.params.id]);
+  if (!inv) return res.status(404).json({ error: "Invoice not found" });
+  const payments = await q(
+    `SELECT p.id, p.amount_received, p.ewt_amount, p.discount_amount, p.collection_receipt_no,
+            p.note, p.verified_at, u.full_name AS verified_by_name
+       FROM invoice_payments p LEFT JOIN users u ON u.id = p.verified_by
+      WHERE p.invoice_id = $1 ORDER BY p.verified_at, p.id`,
+    [inv.id]
+  );
+  res.json({ invoice: inv, payments });
+});
+
+const PaymentCorrectionBody = z.object({
+  amount_received: z.number().min(0).optional(),
+  ewt_amount: z.number().min(0).optional(),
+  discount_amount: z.number().min(0).optional(),
+  // null clears the CR number; omitted leaves it as is.
+  collection_receipt_no: z.string().nullable().optional(),
+  reason: z.string().trim().min(3, "Say why this payment is being corrected"),
+});
+
+/**
+ * PATCH /invoices/:id/payments/:paymentId — admin corrects a payment entry that
+ * was keyed in wrong (e.g. the cash received typed into Discount). Payments are
+ * otherwise append-only, so this is deliberately narrow: only the amounts and
+ * CR number, a reason is required, and the before/after is audited. The
+ * invoice's balance and status are recomputed from the ledger afterwards — a
+ * correction can close an invoice that was still open, or reopen one that
+ * turns out not to be settled (it then rejoins the reminder cycle). A void
+ * invoice can't be corrected.
+ */
+invoicesRouter.patch("/:id/payments/:paymentId", requireAdmin, async (req, res) => {
+  const parsed = PaymentCorrectionBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  const { reason } = parsed.data;
+  const user = req.user!;
+
+  let result: { payment: any; invoice: any; balance_due: number; status_change: string | null } | null;
+  try {
+    result = await tx(async (c) => {
+      const invRes = await c.query("SELECT * FROM invoices WHERE id = $1 FOR UPDATE", [req.params.id]);
+      const inv = invRes.rows[0];
+      if (!inv) return null;
+      if (inv.status === "void") {
+        const err: any = new Error("A void invoice's payments can't be corrected");
+        err.code = "VOID";
+        throw err;
+      }
+      const payRes = await c.query("SELECT * FROM invoice_payments WHERE id = $1 AND invoice_id = $2 FOR UPDATE", [
+        req.params.paymentId, inv.id,
+      ]);
+      const before = payRes.rows[0];
+      if (!before) return null;
+
+      const next = {
+        amount_received: parsed.data.amount_received ?? Number(before.amount_received),
+        ewt_amount: parsed.data.ewt_amount ?? Number(before.ewt_amount),
+        discount_amount: parsed.data.discount_amount ?? Number(before.discount_amount),
+        collection_receipt_no:
+          parsed.data.collection_receipt_no === undefined ? before.collection_receipt_no : normalizeCrNo(parsed.data.collection_receipt_no),
+      };
+      const unchanged =
+        next.amount_received === Number(before.amount_received) &&
+        next.ewt_amount === Number(before.ewt_amount) &&
+        next.discount_amount === Number(before.discount_amount) &&
+        next.collection_receipt_no === before.collection_receipt_no;
+      if (unchanged) {
+        const err: any = new Error("Nothing to change");
+        err.code = "NO_CHANGE";
+        throw err;
+      }
+
+      const updRes = await c.query(
+        `UPDATE invoice_payments
+            SET amount_received = $2, ewt_amount = $3, discount_amount = $4, collection_receipt_no = $5
+          WHERE id = $1 RETURNING *`,
+        [before.id, next.amount_received, next.ewt_amount, next.discount_amount, next.collection_receipt_no]
+      );
+
+      const balRes = await c.query(`SELECT ${BALANCE_DUE_SQL} AS balance_due FROM invoices i WHERE i.id = $1`, [inv.id]);
+      const balanceDue = Number(balRes.rows[0].balance_due);
+      const fullyPaid = balanceDue <= BALANCE_TOLERANCE;
+
+      let statusChange: string | null = null;
+      let invoiceRow = inv;
+      if (fullyPaid && inv.status !== "paid") {
+        const u = await c.query("UPDATE invoices SET status = 'paid', paid_at = now() WHERE id = $1 RETURNING *", [inv.id]);
+        invoiceRow = u.rows[0];
+        await revokeInvoiceTokens(inv.id, c, "receipt");
+        statusChange = "paid";
+      } else if (!fullyPaid && inv.status === "paid") {
+        const u = await c.query("UPDATE invoices SET status = 'unpaid', paid_at = NULL WHERE id = $1 RETURNING *", [inv.id]);
+        invoiceRow = u.rows[0];
+        statusChange = "reopened";
+      }
+
+      await audit(
+        user.id, "invoice.payment_corrected", "invoice", inv.id,
+        {
+          invoice_no: inv.invoice_no, payment_id: before.id, reason,
+          before: {
+            amount_received: Number(before.amount_received), ewt_amount: Number(before.ewt_amount),
+            discount_amount: Number(before.discount_amount), collection_receipt_no: before.collection_receipt_no,
+          },
+          after: next, balance_due: balanceDue, status_change: statusChange,
+        },
+        c
+      );
+      return { payment: updRes.rows[0], invoice: invoiceRow, balance_due: balanceDue, status_change: statusChange };
+    });
+  } catch (err: any) {
+    if (err?.code === "VOID" || err?.code === "NO_CHANGE") return res.status(409).json({ error: err.message });
+    if (err?.code === "23505" && err.constraint === "idx_invoice_payments_cr_no_unique")
+      return res.status(409).json({ error: "That Collection Receipt number is already in use" });
+    throw err;
+  }
+  if (!result) return res.status(404).json({ error: "Payment not found" });
   res.json(result);
 });

@@ -103,6 +103,7 @@ clientsRouter.get("/:id", async (req, res) => {
               (amount - COALESCE((SELECT SUM(amount_received + ewt_amount + discount_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0)) AS balance_due,
               COALESCE((SELECT SUM(ewt_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0) AS total_ewt,
               COALESCE((SELECT SUM(discount_amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0) AS total_discount,
+              (SELECT count(*)::int FROM invoice_payments WHERE invoice_id = invoices.id) AS payment_count,
               (SELECT original_name FROM receipts WHERE invoice_id = invoices.id ORDER BY uploaded_at DESC LIMIT 1) AS receipt_name,
               (SELECT collection_receipt_no FROM invoice_payments
                 WHERE invoice_id = invoices.id AND collection_receipt_no IS NOT NULL

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
+import PaymentCorrection from "./PaymentCorrection";
 import { Card, EditClientForm, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData, useToast } from "../../components";
 
 export function Directory() {
@@ -65,6 +66,7 @@ export function ClientDetail() {
   const navigate = useNavigate();
   const toast = useToast();
   const { data, error, loading, reload } = useData<any>(() => api.get(`/clients/${id}`), [id]);
+  const [openPayments, setOpenPayments] = useState<string | null>(null);
   const { data: agents } = useData<any[]>(() => api.get("/agents"), []);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -287,7 +289,8 @@ export function ClientDetail() {
           <thead><tr><th>Invoice</th><th className="right">Amount</th><th>Due</th><th>Status</th><th /></tr></thead>
           <tbody>
             {invoices.map((i: any) => (
-              <tr key={i.id}>
+              <Fragment key={i.id}>
+              <tr>
                 <td className="num strong">{i.invoice_no}</td>
                 <td className="num right">
                   {peso(i.amount)}
@@ -304,7 +307,7 @@ export function ClientDetail() {
                     <div className="dim" style={{ fontSize: 12.5 }}>2307 on file</div>
                   )}
                   {i.collection_receipt_no && (
-                    <div className="dim" style={{ fontSize: 12.5 }}>CR {i.collection_receipt_no}</div>
+                    <div className="dim" style={{ fontSize: 12.5 }}>{/^cr\b/i.test(i.collection_receipt_no) ? i.collection_receipt_no : `CR ${i.collection_receipt_no}`}</div>
                   )}
                   {i.covered_orders && (
                     <div className="dim" style={{ fontSize: 12.5 }}>
@@ -331,11 +334,26 @@ export function ClientDetail() {
                       <button className="btn sm ghost" onClick={() => viewEwt(i.id)}>View 2307</button>{" "}
                     </>
                   )}
+                  {Number(i.payment_count) > 0 && i.status !== "void" && (
+                    <>
+                      <button className="btn sm ghost" onClick={() => setOpenPayments(openPayments === i.id ? null : i.id)}>
+                        {openPayments === i.id ? "Hide payments" : "Payments"}
+                      </button>{" "}
+                    </>
+                  )}
                   {i.status !== "void" && (
                     <button className="btn sm ghost" onClick={() => sendEwtLink(i.id, i.invoice_no)}>Send 2307 link</button>
                   )}
                 </td>
               </tr>
+              {openPayments === i.id && (
+                <tr>
+                  <td colSpan={5} style={{ background: "var(--paper)" }}>
+                    <PaymentCorrection invoiceId={i.id} invoiceAmount={Number(i.amount)} onChanged={reload} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
             {!invoices.length && <tr><td colSpan={5} className="empty">No invoices yet.</td></tr>}
           </tbody>

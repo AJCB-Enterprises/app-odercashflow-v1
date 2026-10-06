@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, fmtTime, peso } from "../../api";
-import { Card, ErrorBox, Loading, useData, useToast } from "../../components";
+import { Card, ErrorBox, Loading, matchesSearch, SearchBox, useData, useToast } from "../../components";
+import { paymentWarning } from "./paymentChecks";
 
 // Clients upload from their own phone/browser, so the "original" filename is
 // whatever their device gave it — sometimes a long generated name (a camera
@@ -19,6 +20,7 @@ const truncateFilename = (name: string, max = 28) => {
 export default function Receipts() {
   const { data, error, loading, reload } = useData<any[]>(() => api.get("/invoices?state=open"), []);
   const toast = useToast();
+  const [search, setSearch] = useState("");
 
   const [recording, setRecording] = useState<string | null>(null);
   const [amountReceived, setAmountReceived] = useState("");
@@ -69,7 +71,9 @@ export default function Receipts() {
     setCrNo("");
   };
 
-  const confirmPayment = async (invoiceId: string, invoiceNo: string) => {
+  const confirmPayment = async (invoiceId: string, invoiceNo: string, balanceDue: number) => {
+    const warning = paymentWarning(Number(amountReceived) || 0, Number(discountAmount) || 0, balanceDue);
+    if (warning && !window.confirm(`${warning}\n\nRecord it anyway?`)) return;
     setBusy(true);
     try {
       const res = await api.post<{ fully_paid: boolean; balance_due: number }>(`/invoices/${invoiceId}/payments`, {
@@ -92,6 +96,9 @@ export default function Receipts() {
     }
   };
 
+  const rows = (data || []).filter((i) =>
+    matchesSearch(search, i.invoice_no, i.company_name, i.receipt_name, i.collection_receipt_no));
+
   return (
     <>
       <h1 className="page">Payments</h1>
@@ -103,6 +110,8 @@ export default function Receipts() {
         invoice only closes out once the balance reaches zero; a short payment stays open for the
         remainder and keeps sending reminders automatically.
       </p>
+      <SearchBox value={search} onChange={setSearch} label="Search payments"
+        placeholder="Search by invoice, client, receipt file, or CR #…" />
       {error && <ErrorBox msg={error} />}
       <Card pad={false}>
         {loading ? <Loading /> : (
@@ -111,7 +120,7 @@ export default function Receipts() {
               <tr><th>Invoice</th><th>Client</th><th className="right">Balance due</th><th>Receipt file</th><th>CR #</th><th>Uploaded</th><th /></tr>
             </thead>
             <tbody>
-              {(data || []).map((i) => (
+              {rows.map((i) => (
                 <tr key={i.id}>
                   <td className="num strong">{i.invoice_no}</td>
                   <td>
@@ -165,7 +174,7 @@ export default function Receipts() {
                             <input className="f" style={{ width: 130, marginBottom: 0 }} type="text"
                               placeholder="e.g. CR-2026-0001" value={crNo} onChange={(e) => setCrNo(e.target.value)} />
                           </span>
-                          <button className="btn sm green" disabled={busy} onClick={() => confirmPayment(i.id, i.invoice_no)}>
+                          <button className="btn sm green" disabled={busy} onClick={() => confirmPayment(i.id, i.invoice_no, Number(i.balance_due))}>
                             {busy ? "Saving…" : "Confirm"}
                           </button>
                           <button className="btn sm ghost" disabled={busy} onClick={() => setRecording(null)}>Cancel</button>
@@ -177,7 +186,9 @@ export default function Receipts() {
                   </td>
                 </tr>
               ))}
-              {!data?.length && <tr><td colSpan={7} className="empty">Nothing outstanding right now.</td></tr>}
+              {!rows.length && (
+                <tr><td colSpan={7} className="empty">{data?.length ? "No payments match your search." : "Nothing outstanding right now."}</td></tr>
+              )}
             </tbody>
           </table>
         )}

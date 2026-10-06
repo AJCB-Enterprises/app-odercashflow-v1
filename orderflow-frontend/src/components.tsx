@@ -142,6 +142,24 @@ export function useData<T>(load: () => Promise<T>, deps: unknown[] = []) {
 }
 
 export const Loading = () => <div className="empty">Loading…</div>;
+
+/* ---- search: a box plus a case-insensitive "does any field contain the query" test ---- */
+export const matchesSearch = (query: string, ...fields: (string | number | null | undefined)[]) => {
+  const q = query.trim().toLowerCase();
+  return !q || fields.some((f) => String(f ?? "").toLowerCase().includes(q));
+};
+
+export function SearchBox({ value, onChange, placeholder, label }: {
+  value: string; onChange: (v: string) => void; placeholder: string; label: string;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16 }}>
+      <input className="f" style={{ maxWidth: 380, marginBottom: 0 }} value={value} placeholder={placeholder}
+        aria-label={label} onChange={(e) => onChange(e.target.value)} />
+      {value && <button className="btn sm ghost" onClick={() => onChange("")}>Clear</button>}
+    </div>
+  );
+}
 export const ErrorBox = ({ msg }: { msg: string }) => <div className="errbox">{msg}</div>;
 
 /* ---- payment terms / VAT status: shared option lists ---- */
