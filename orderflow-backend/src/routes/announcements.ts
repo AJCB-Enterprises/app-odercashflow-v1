@@ -39,22 +39,27 @@ announcementsRouter.post("/", async (req, res) => {
   if (!clients.length) return res.status(400).json({ error: "No clients in the directory to send to" });
 
   let sent = 0;
+  let noEmail = 0;
+  let failed = 0;
   for (const c of clients) {
     const recipients = clientEmails(c);
-    if (!recipients.length) continue; // no email on file — not counted as sent
+    if (!recipients.length) { noEmail++; continue; } // no email on file — can't be sent to
     try {
       await sendMail(recipients, subject, renderTemplate(body, { contact: c.contact_name }));
       sent++;
     } catch (err: any) {
-      console.error(`announcement failed for ${c.email}:`, err.message);
+      failed++;
+      console.error(`announcement failed for ${recipients.join(", ")}:`, err.message);
     }
   }
 
   const row = await one(
-    `INSERT INTO announcements (subject, body, sent_by, recipient_count)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
-    [subject, body, req.user!.id, sent]
+    `INSERT INTO announcements (subject, body, sent_by, recipient_count, no_email_count, failed_count)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [subject, body, req.user!.id, sent, noEmail, failed]
   );
-  await audit(req.user!.id, "announcement.sent", "announcement", row!.id, { subject, recipient_count: sent });
-  res.status(201).json({ ...row, attempted: clients.length, sent });
+  await audit(req.user!.id, "announcement.sent", "announcement", row!.id, {
+    subject, recipient_count: sent, no_email_count: noEmail, failed_count: failed,
+  });
+  res.status(201).json({ ...row, attempted: clients.length, sent, no_email: noEmail, failed });
 });
