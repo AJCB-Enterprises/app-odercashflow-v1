@@ -277,6 +277,12 @@ export function OrderDetail() {
         </Card>
       )}
 
+      {order.remarks && (
+        <Card title="Agent's notes">
+          <p style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{order.remarks}</p>
+        </Card>
+      )}
+
       <Card title="Order details" pad={false}
         hint={order.status === "approved" ? "cancelling an item here adjusts its invoice, if any — the rest of the order stays" : undefined}>
         <table className="ledger">

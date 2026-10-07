@@ -147,6 +147,9 @@ const OrderItemsAndPo = {
   discount_amount: z.coerce.number().min(0).optional(),
   po_date: z.string().date().optional().or(z.literal("")),
   po_number: z.string().optional(),
+  // Internal notes for the reviewer. On a revision, omitting it keeps what's
+  // there (admin's own cancel-item edit doesn't resend it); an empty string clears it.
+  remarks: z.string().trim().max(2000, "Remarks can be up to 2000 characters").optional(),
 };
 
 const itemsSubtotal = (items: { qty: number; unit_price: number }[]) =>
@@ -185,6 +188,7 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimit
   const parsed = OrderBody.safeParse({ ...req.body, items: itemsInput });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
   const { client_id, items, payment_terms, po_date, po_number } = parsed.data;
+  const remarks = parsed.data.remarks || null;
   const discountAmount = parsed.data.discount_amount ?? 0;
   if (discountAmount > itemsSubtotal(items))
     return res.status(400).json({ error: "Discount can't exceed the order subtotal" });
@@ -206,11 +210,11 @@ ordersRouter.post("/", requireAgentPermission("can_create_po"), createOrderLimit
   const created = await tx(async (c) => {
     const orderNo = await nextDocNo(c, "SO");
     const orderRes = await c.query(
-      `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status, po_date, po_number, discount_amount)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      `INSERT INTO orders (order_no, client_id, created_by, payment_terms, vat_status, po_date, po_number, discount_amount, remarks)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
       [
         orderNo, client_id, user.id, payment_terms ?? clientRow.payment_terms, clientRow.vat_status,
-        po_date || null, po_number?.trim() || null, discountAmount,
+        po_date || null, po_number?.trim() || null, discountAmount, remarks,
       ]
     );
     let order = orderRes.rows[0];
@@ -269,8 +273,8 @@ ordersRouter.patch("/:id", requireAgentPermission("can_create_po"), uploadAttach
     if (!attachment) return res.status(400).json({ error: "PO attachment must be a JPG, PNG, or PDF" });
   }
 
-  const existing = await one<{ id: string; order_no: string; status: string; agent_id: string; company_name: string; discount_amount: number }>(
-    `SELECT o.id, o.order_no, o.status, o.discount_amount, c.agent_id, c.company_name
+  const existing = await one<{ id: string; order_no: string; status: string; agent_id: string; company_name: string; discount_amount: number; remarks: string | null }>(
+    `SELECT o.id, o.order_no, o.status, o.discount_amount, o.remarks, c.agent_id, c.company_name
        FROM orders o JOIN clients c ON c.id = o.client_id
       WHERE o.id = $1`,
     [req.params.id]
@@ -282,6 +286,7 @@ ordersRouter.patch("/:id", requireAgentPermission("can_create_po"), uploadAttach
   // Omitting discount_amount keeps whatever was already set, same as the
   // attachment; but it must still fit the (possibly revised) item subtotal.
   const discountAmount = parsed.data.discount_amount ?? Number(existing.discount_amount);
+  const remarks = parsed.data.remarks === undefined ? existing.remarks : parsed.data.remarks || null;
   if (discountAmount > itemsSubtotal(items))
     return res.status(400).json({ error: "Discount can't exceed the order subtotal" });
 
@@ -295,11 +300,12 @@ ordersRouter.patch("/:id", requireAgentPermission("can_create_po"), uploadAttach
         it.unit_price,
       ]);
 
-    await c.query("UPDATE orders SET po_date = $2, po_number = $3, discount_amount = $4 WHERE id = $1", [
+    await c.query("UPDATE orders SET po_date = $2, po_number = $3, discount_amount = $4, remarks = $5 WHERE id = $1", [
       existing.id,
       po_date || null,
       po_number?.trim() || null,
       discountAmount,
+      remarks,
     ]);
 
     if (req.file && attachment) {

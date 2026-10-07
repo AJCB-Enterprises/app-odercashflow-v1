@@ -84,6 +84,7 @@ export function AgentNewOrder() {
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
   const stockFor = useStockCheck(items);
   const [discount, setDiscount] = useState("");
+  const [remarks, setRemarks] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("net_30");
   const [poDate, setPoDate] = useState("");
   const [poNumber, setPoNumber] = useState("");
@@ -146,6 +147,7 @@ export function AgentNewOrder() {
       form.append("client_id", chosen);
       form.append("items", JSON.stringify(clean));
       if (discountAmount > 0) form.append("discount_amount", String(discountAmount));
+      if (remarks.trim()) form.append("remarks", remarks.trim());
       form.append("payment_terms", paymentTerms);
       if (poDate) form.append("po_date", poDate);
       if (poNumber.trim()) form.append("po_number", poNumber.trim());
@@ -236,6 +238,10 @@ export function AgentNewOrder() {
               Discount can't exceed the subtotal ({peso(subtotal)}).
             </p>
           )}
+          <label className="f" htmlFor="orem">Notes / remarks (optional)</label>
+          <textarea id="orem" className="f" rows={3} maxLength={2000} style={{ maxWidth: 560 }} value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            placeholder="Anything the admin should know about this order, e.g. delivery instructions." />
           <div style={{ marginTop: 18 }}>
             {discountAmount > 0 && (
               <div className="dim" style={{ marginBottom: 4 }}>
@@ -310,6 +316,7 @@ export function AgentOrderDetail() {
   const [items, setItems] = useState([{ description: "", qty: "1", unit_price: "" }]);
   const stockFor = useStockCheck(items);
   const [discount, setDiscount] = useState("");
+  const [remarks, setRemarks] = useState("");
   const [poDate, setPoDate] = useState("");
   const [poNumber, setPoNumber] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -323,6 +330,7 @@ export function AgentOrderDetail() {
         : [{ description: "", qty: "1", unit_price: "" }]
     );
     setDiscount(Number(data.order.discount_amount) > 0 ? String(Number(data.order.discount_amount)) : "");
+    setRemarks(data.order.remarks || "");
     setPoDate(data.order.po_date ? String(data.order.po_date).slice(0, 10) : "");
     setPoNumber(data.order.po_number || "");
     setSeeded(true);
@@ -361,6 +369,7 @@ export function AgentOrderDetail() {
       const form = new FormData();
       form.append("items", JSON.stringify(clean));
       form.append("discount_amount", String(discountAmount));
+      form.append("remarks", remarks.trim());
       if (poDate) form.append("po_date", poDate);
       if (poNumber.trim()) form.append("po_number", poNumber.trim());
       if (file) form.append("file", file);
@@ -406,6 +415,9 @@ export function AgentOrderDetail() {
               </tr>
             </tbody>
           </table>
+          {order.remarks && (
+            <p className="dim" style={{ marginTop: 12, marginBottom: 0, whiteSpace: "pre-wrap" }}>Notes: {order.remarks}</p>
+          )}
           {order.status === "rejected" && order.reject_reason && (
             <p className="dim" style={{ marginTop: 12, marginBottom: 0 }}>Rejected: {order.reject_reason}</p>
           )}
@@ -461,6 +473,10 @@ export function AgentOrderDetail() {
               Discount can't exceed the subtotal ({peso(subtotal)}).
             </p>
           )}
+          <label className="f" htmlFor="erem">Notes / remarks (optional)</label>
+          <textarea id="erem" className="f" rows={3} maxLength={2000} style={{ maxWidth: 560 }} value={remarks}
+            onChange={(e) => setRemarks(e.target.value)}
+            placeholder="Anything the admin should know about this order, e.g. delivery instructions." />
           <div style={{ marginTop: 18 }}>
             {discountAmount > 0 && (
               <div className="dim" style={{ marginBottom: 4 }}>
