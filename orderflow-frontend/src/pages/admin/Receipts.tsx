@@ -106,7 +106,8 @@ export default function Receipts() {
         Record payments as they come in — verify a client's uploaded receipt against your bank records,
         or record one collected in person (check payment, cash, etc). Enter what actually came in —
         including any BIR EWT withheld (per the client's Form 2307), any discount granted at settlement,
-        and — for a payment collected in person — the Collection Receipt (CR) number issued for it. An
+        and — for a payment collected in person — the Collection Receipt (CR) number issued for it. If one
+        payment covers several invoices, enter the same CR number on each of them. An
         invoice only closes out once the balance reaches zero; a short payment stays open for the
         remainder and keeps sending reminders automatically.
       </p>
@@ -172,6 +173,7 @@ export default function Receipts() {
                           <span className="inputgroup">
                             <span className="lbl">CR # (optional)</span>
                             <input className="f" style={{ width: 130, marginBottom: 0 }} type="text"
+                              title="One CR number can be used on every invoice covered by the same payment"
                               placeholder="e.g. CR-2026-0001" value={crNo} onChange={(e) => setCrNo(e.target.value)} />
                           </span>
                           <button className="btn sm green" disabled={busy} onClick={() => confirmPayment(i.id, i.invoice_no, Number(i.balance_due))}>

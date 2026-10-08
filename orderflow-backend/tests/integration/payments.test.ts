@@ -203,23 +203,47 @@ describe("POST /invoices/:id/payments", () => {
     expect(res.status).toBe(200);
   });
 
-  it("rejects a duplicate Collection Receipt number across different invoices", async () => {
+  it("lets one Collection Receipt number cover several of the same client's invoices", async () => {
     const { token } = await asAdmin();
     const client = await createClientRow();
     const invoiceA = await createInvoice({ clientId: client.id, amount: 500 });
-    const invoiceB = await createInvoice({ clientId: client.id, amount: 500 });
+    const invoiceB = await createInvoice({ clientId: client.id, amount: 700 });
 
     const first = await request(app)
       .post(`/invoices/${invoiceA.id}/payments`)
       .set("Authorization", `Bearer ${token}`)
       .send({ amount_received: 500, collection_receipt_no: "CR-2026-0002" });
+    const second = await request(app)
+      .post(`/invoices/${invoiceB.id}/payments`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount_received: 700, collection_receipt_no: "CR-2026-0002" });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const { rows } = await pool.query("SELECT invoice_id FROM invoice_payments WHERE collection_receipt_no = 'CR-2026-0002'");
+    expect(rows).toHaveLength(2);
+  });
+
+  it("rejects a Collection Receipt number already recorded for a different client", async () => {
+    const { token } = await asAdmin();
+    const clientA = await createClientRow();
+    const clientB = await createClientRow();
+    const invoiceA = await createInvoice({ clientId: clientA.id, amount: 500, invoiceNo: "A-100" });
+    const invoiceB = await createInvoice({ clientId: clientB.id, amount: 500 });
+
+    const first = await request(app)
+      .post(`/invoices/${invoiceA.id}/payments`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ amount_received: 500, collection_receipt_no: "CR-2026-0003" });
     expect(first.status).toBe(200);
 
     const second = await request(app)
       .post(`/invoices/${invoiceB.id}/payments`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ amount_received: 500, collection_receipt_no: "CR-2026-0002" });
+      .send({ amount_received: 500, collection_receipt_no: "CR-2026-0003" });
 
     expect(second.status).toBe(409);
+    expect(second.body.error).toContain("another client");
+    expect(second.body.error).toContain("A-100");
   });
 });

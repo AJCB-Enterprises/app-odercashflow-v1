@@ -117,8 +117,9 @@ describe("Collection Receipt number handling", () => {
   it("strips a typed 'CR #' prefix when recording, so it can't hide a duplicate", async () => {
     const token = await asAdmin();
     const client = await createClientRow();
+    const otherClient = await createClientRow();
     const a = await createInvoice({ clientId: client.id, amount: 1000 });
-    const b = await createInvoice({ clientId: client.id, amount: 1000 });
+    const b = await createInvoice({ clientId: otherClient.id, amount: 1000 });
 
     await record(token, a.id, { amount_received: 1000, collection_receipt_no: "CR #20488" });
     expect((await paymentsOf(a.id))[0].collection_receipt_no).toBe("20488");
@@ -138,8 +139,9 @@ describe("Collection Receipt number handling", () => {
   it("lets a correction fix or clear the CR number, and refuses one already in use", async () => {
     const token = await asAdmin();
     const client = await createClientRow();
+    const otherClient = await createClientRow();
     const a = await createInvoice({ clientId: client.id, amount: 1000 });
-    const b = await createInvoice({ clientId: client.id, amount: 1000 });
+    const b = await createInvoice({ clientId: otherClient.id, amount: 1000 });
     await pool.query("INSERT INTO invoice_payments (invoice_id, amount_received, verified_by, collection_receipt_no) SELECT $1, 1000, id, 'CR #20488' FROM users LIMIT 1", [a.id]);
     await record(token, b.id, { amount_received: 1000, collection_receipt_no: "555" });
     const [pa] = await paymentsOf(a.id);
@@ -155,6 +157,22 @@ describe("Collection Receipt number handling", () => {
     const cleared = await correct(token, b.id, pb.id, { collection_receipt_no: null, reason: "no CR was issued" });
     expect(cleared.status).toBe(200);
     expect(cleared.body.payment.collection_receipt_no).toBeNull();
+  });
+});
+
+describe("a Collection Receipt shared across one client's invoices", () => {
+  it("can also be set by a correction, as long as it is the same client", async () => {
+    const token = await asAdmin();
+    const client = await createClientRow();
+    const a = await createInvoice({ clientId: client.id, amount: 1000 });
+    const b = await createInvoice({ clientId: client.id, amount: 1000 });
+    await record(token, a.id, { amount_received: 1000, collection_receipt_no: "777" });
+    await record(token, b.id, { amount_received: 1000 });
+    const [pb] = await paymentsOf(b.id);
+
+    const res = await correct(token, b.id, pb.id, { collection_receipt_no: "777", reason: "Same payment as the other invoice" });
+    expect(res.status).toBe(200);
+    expect(res.body.payment.collection_receipt_no).toBe("777");
   });
 });
 

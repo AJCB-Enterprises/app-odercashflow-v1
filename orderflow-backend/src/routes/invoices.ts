@@ -59,6 +59,37 @@ const normalizeCrNo = (raw: string | null | undefined): string | null => {
 };
 
 /**
+ * A Collection Receipt number is one official document, and one payment can
+ * settle several of a client's invoices, so the same number may appear on any
+ * of that client's payments. It may not appear on a different client's — that
+ * is almost always a mistyped number. Serialised per number so two concurrent
+ * entries can't both slip past the check. `ignorePaymentId` lets a correction
+ * keep (or re-save) its own number.
+ */
+const assertCrUsableFor = async (
+  c: { query: (sql: string, params: any[]) => Promise<any> },
+  crNo: string | null,
+  clientId: string,
+  ignorePaymentId?: string
+) => {
+  if (!crNo) return;
+  await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`cr:${crNo}`]);
+  const { rows } = await c.query(
+    `SELECT iv.invoice_no FROM invoice_payments p JOIN invoices iv ON iv.id = p.invoice_id
+      WHERE p.collection_receipt_no = $1 AND iv.client_id <> $2 AND p.id IS DISTINCT FROM $3::uuid
+      LIMIT 1`,
+    [crNo, clientId, ignorePaymentId ?? null]
+  );
+  if (rows.length) {
+    const err: any = new Error(
+      `Collection Receipt ${crNo} is already recorded for another client (invoice ${rows[0].invoice_no}) — check the number`
+    );
+    err.code = "CR_OTHER_CLIENT";
+    throw err;
+  }
+};
+
+/**
  * GET /invoices?client_id=&state=open|paid|receipt_uploaded
  * Agents need the can_view_invoices permission and only see their clients.
  */
@@ -265,11 +296,13 @@ invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
   try {
     result = await tx(async (c) => {
       const invRes = await c.query(
-        "SELECT id, invoice_no, amount FROM invoices WHERE id = $1 AND status IN ('unpaid','receipt_uploaded')",
+        "SELECT id, invoice_no, amount, client_id FROM invoices WHERE id = $1 AND status IN ('unpaid','receipt_uploaded')",
         [req.params.id]
       );
       const inv = invRes.rows[0];
       if (!inv) return null;
+
+      await assertCrUsableFor(c, crNo, inv.client_id);
 
       const receipt = await one("SELECT id FROM receipts WHERE invoice_id = $1 ORDER BY uploaded_at DESC LIMIT 1", [
         inv.id,
@@ -313,8 +346,7 @@ invoicesRouter.post("/:id/payments", requireAdmin, async (req, res) => {
       return { invoice: updRes.rows[0], balance_due: balanceDue, fully_paid: fullyPaid };
     });
   } catch (err: any) {
-    if (err?.code === "23505" && err.constraint === "idx_invoice_payments_cr_no_unique")
-      return res.status(409).json({ error: `Collection Receipt ${crNo} is already in use` });
+    if (err?.code === "CR_OTHER_CLIENT") return res.status(409).json({ error: err.message });
     throw err;
   }
 
@@ -396,6 +428,8 @@ invoicesRouter.patch("/:id/payments/:paymentId", requireAdmin, async (req, res) 
         throw err;
       }
 
+      await assertCrUsableFor(c, next.collection_receipt_no, inv.client_id, before.id);
+
       const updRes = await c.query(
         `UPDATE invoice_payments
             SET amount_received = $2, ewt_amount = $3, discount_amount = $4, collection_receipt_no = $5
@@ -435,9 +469,8 @@ invoicesRouter.patch("/:id/payments/:paymentId", requireAdmin, async (req, res) 
       return { payment: updRes.rows[0], invoice: invoiceRow, balance_due: balanceDue, status_change: statusChange };
     });
   } catch (err: any) {
-    if (err?.code === "VOID" || err?.code === "NO_CHANGE") return res.status(409).json({ error: err.message });
-    if (err?.code === "23505" && err.constraint === "idx_invoice_payments_cr_no_unique")
-      return res.status(409).json({ error: "That Collection Receipt number is already in use" });
+    if (err?.code === "VOID" || err?.code === "NO_CHANGE" || err?.code === "CR_OTHER_CLIENT")
+      return res.status(409).json({ error: err.message });
     throw err;
   }
   if (!result) return res.status(404).json({ error: "Payment not found" });
