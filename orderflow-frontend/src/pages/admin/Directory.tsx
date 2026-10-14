@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../../api";
+import EditInvoiceNo from "./EditInvoiceNo";
 import PaymentCorrection from "./PaymentCorrection";
 import { Card, EditClientForm, ErrorBox, InvoiceChip, Loading, NewClientForm, OrderChip, useData, useToast } from "../../components";
 
@@ -67,6 +68,7 @@ export function ClientDetail() {
   const toast = useToast();
   const { data, error, loading, reload } = useData<any>(() => api.get(`/clients/${id}`), [id]);
   const [openPayments, setOpenPayments] = useState<string | null>(null);
+  const [editingSi, setEditingSi] = useState<string | null>(null);
   const { data: agents } = useData<any[]>(() => api.get("/agents"), []);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -342,10 +344,23 @@ export function ClientDetail() {
                     </>
                   )}
                   {i.status !== "void" && (
-                    <button className="btn sm ghost" onClick={() => sendEwtLink(i.id, i.invoice_no)}>Send 2307 link</button>
+                    <>
+                      <button className="btn sm ghost" onClick={() => setEditingSi(editingSi === i.id ? null : i.id)}>
+                        {editingSi === i.id ? "Cancel edit" : "Edit SI #"}
+                      </button>{" "}
+                      <button className="btn sm ghost" onClick={() => sendEwtLink(i.id, i.invoice_no)}>Send 2307 link</button>
+                    </>
                   )}
                 </td>
               </tr>
+              {editingSi === i.id && (
+                <tr>
+                  <td colSpan={5} style={{ background: "var(--paper)" }}>
+                    <EditInvoiceNo invoiceId={i.id} currentNo={i.invoice_no}
+                      onCancel={() => setEditingSi(null)} onDone={() => { setEditingSi(null); reload(); }} />
+                  </td>
+                </tr>
+              )}
               {openPayments === i.id && (
                 <tr>
                   <td colSpan={5} style={{ background: "var(--paper)" }}>

@@ -476,3 +476,54 @@ invoicesRouter.patch("/:id/payments/:paymentId", requireAdmin, async (req, res) 
   if (!result) return res.status(404).json({ error: "Payment not found" });
   res.json(result);
 });
+
+const InvoiceNoBody = z.object({
+  invoice_no: z.string().trim().min(1, "Sales Invoice number is required"),
+  reason: z.string().trim().min(3, "Say why this number is being changed"),
+});
+
+/**
+ * PATCH /invoices/:id/invoice-no — admin changes the Sales Invoice number on an
+ * invoice, e.g. when a client has to be reinvoiced under a new SI (including
+ * invoices that predate the app). It renames the number in place, so the
+ * order, amount, payments and reminder history all stay attached — no need for
+ * the agent to log the order again or for the old invoice to be voided. SI
+ * numbers are official pre-numbered documents, so a reason is required and the
+ * old and new numbers are both written to the audit log. The new number must
+ * not already belong to another live invoice (a voided invoice's number is
+ * free to reuse, as elsewhere); a void invoice itself can't be renumbered.
+ */
+invoicesRouter.patch("/:id/invoice-no", requireAdmin, async (req, res) => {
+  const parsed = InvoiceNoBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  const { invoice_no: newNo, reason } = parsed.data;
+  const user = req.user!;
+
+  let invoice: any;
+  try {
+    invoice = await tx(async (c) => {
+      const invRes = await c.query("SELECT * FROM invoices WHERE id = $1 FOR UPDATE", [req.params.id]);
+      const inv = invRes.rows[0];
+      if (!inv) return null;
+      if (inv.status === "void") {
+        const err: any = new Error("A void invoice's number can't be changed");
+        err.code = "INV_VOID";
+        throw err;
+      }
+      if (String(inv.invoice_no) === newNo) {
+        const err: any = new Error("That is already this invoice's number");
+        err.code = "INV_NO_CHANGE";
+        throw err;
+      }
+      const updRes = await c.query("UPDATE invoices SET invoice_no = $2 WHERE id = $1 RETURNING *", [inv.id, newNo]);
+      await audit(user.id, "invoice.number_changed", "invoice", inv.id, { from: String(inv.invoice_no), to: newNo, reason }, c);
+      return updRes.rows[0];
+    });
+  } catch (err: any) {
+    if (err?.code === "INV_VOID" || err?.code === "INV_NO_CHANGE") return res.status(409).json({ error: err.message });
+    if (err?.code === "23505") return res.status(409).json({ error: `Invoice number ${newNo} is already in use` });
+    throw err;
+  }
+  if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+  res.json(invoice);
+});
