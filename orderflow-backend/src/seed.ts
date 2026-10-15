@@ -1,12 +1,25 @@
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
+import { config } from "./config";
 import { pool, one, tx } from "./db";
 import { nextDocNo } from "./lib/numbering";
 
 /**
- * Demo data for local development. Idempotent-ish: exits if the admin exists.
- * Logins — admin@ajcb.com.ph / admin-pass-123, rosa@orderflow.ph / agent-pass-123
+ * Demo data for local development only. Idempotent-ish: exits if the admin
+ * exists. Passwords are random on every run and printed once at the end, so
+ * there is no well-known default login to guess on a deployed instance.
  */
 const run = async () => {
+  // Refuse to seed anything but a local database: demo accounts have no place
+  // on a real instance, and a stray DATABASE_URL pointing at one must not be seeded.
+  const host = new URL(config.databaseUrl).hostname;
+  if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(host)) {
+    console.error(`Refusing to seed "${host}" — the demo seed only runs against a local database.`);
+    process.exit(1);
+  }
+
+  const adminPassword = crypto.randomBytes(9).toString("base64url");
+  const agentPassword = crypto.randomBytes(9).toString("base64url");
   if (await one("SELECT 1 FROM users WHERE email = 'admin@ajcb.com.ph'")) {
     console.log("Seed already applied — nothing to do.");
     await pool.end();
@@ -19,7 +32,7 @@ const run = async () => {
       await c.query(
         `INSERT INTO users (role, full_name, email, password_hash)
          VALUES ('admin', 'Site Admin', 'admin@ajcb.com.ph', $1) RETURNING id`,
-        [hash("admin-pass-123")]
+        [hash(adminPassword)]
       )
     ).rows[0];
 
@@ -28,7 +41,7 @@ const run = async () => {
         await c.query(
           `INSERT INTO users (role, full_name, email, password_hash)
            VALUES ('agent', $1, $2, $3) RETURNING id`,
-          [name, email, hash("agent-pass-123")]
+          [name, email, hash(agentPassword)]
         )
       ).rows[0].id;
     const rosa = await agent("Rosa Lim", "rosa@orderflow.ph");
@@ -91,7 +104,9 @@ const run = async () => {
     );
   });
 
-  console.log("Seeded. Logins: admin@ajcb.com.ph / admin-pass-123 · rosa@orderflow.ph / agent-pass-123");
+  console.log("Seeded. Logins (shown once, not stored):");
+  console.log(`  admin@ajcb.com.ph / ${adminPassword}`);
+  console.log(`  rosa@orderflow.ph (and the other seeded agents) / ${agentPassword}`);
   await pool.end();
 };
 

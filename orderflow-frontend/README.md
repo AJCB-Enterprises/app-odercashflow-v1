@@ -15,7 +15,7 @@ npm run dev            # http://localhost:5173
 All API calls go to `/api/*`; the Vite dev server strips the prefix and proxies to
 `http://localhost:4000` (see `vite.config.ts`).
 
-Seed logins: `admin@orderflow.ph` / `admin-pass-123` · `rosa@orderflow.ph` / `agent-pass-123`.
+Seed logins: run `npm run seed` in the backend (local database only); it prints the generated passwords for `admin@ajcb.com.ph` and `rosa@orderflow.ph` once.
 
 ## Trying the client upload flow locally
 

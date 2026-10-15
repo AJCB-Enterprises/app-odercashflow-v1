@@ -16,14 +16,14 @@ npm run dev                   # API on :4000 + reminder worker (15-min tick)
 
 With `SMTP_URL` left empty, every email prints to the console instead — including the tokenized upload link — so the whole flow is testable locally with nothing but Postgres.
 
-Seed logins: `admin@orderflow.ph` / `admin-pass-123` and `rosa@orderflow.ph` / `agent-pass-123`.
+`npm run seed` loads demo data into a **local** database only (it refuses any other host). It creates `admin@ajcb.com.ph` and `rosa@orderflow.ph` with random passwords that it prints once when it finishes.
 
 ## End-to-end walkthrough (curl)
 
 ```bash
 # 1. Sign in as admin
 TOKEN=$(curl -s localhost:4000/auth/login -H 'Content-Type: application/json' \
-  -d '{"email":"admin@orderflow.ph","password":"admin-pass-123"}' | jq -r .token)
+  -d "{\"email\":\"admin@ajcb.com.ph\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r .token)  # the password the seed printed
 AUTH="Authorization: Bearer $TOKEN"
 
 # 2. Payment-due dashboard (the seed includes an overdue invoice)
