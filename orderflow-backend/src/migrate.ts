@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pool } from "./db";
+import { pool, waitForDatabase } from "./db";
 import { encryptField, isEncryptedField } from "./lib/crypto";
 
 /** Applies migrations/*.sql in filename order, tracking them in schema_migrations. */
 const run = async () => {
+  await waitForDatabase();
   await pool.query(
     "CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
   );
