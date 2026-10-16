@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, getUser } from "../api";
+import { api, getUser, setSession } from "../api";
 import { Card, useToast } from "../components";
 
 export default function Account() {
@@ -15,7 +15,9 @@ export default function Account() {
   const submit = async () => {
     setBusy(true);
     try {
-      await api.patch("/auth/password", { current_password: current, new_password: next });
+      const res = await api.patch<{ token?: string } | null>("/auth/password", { current_password: current, new_password: next });
+      // Changing the password retires the old token; keep this session going on the fresh one.
+      if (res?.token && user) setSession(res.token, user);
       toast("Password changed.");
       setCurrent(""); setNext(""); setConfirm("");
     } catch (e: any) {

@@ -23,18 +23,27 @@ declare global {
   }
 }
 
+/** Milliseconds-since-epoch of the last password change, or 0 if it never changed. */
+export const PASSWORD_VERSION_SQL = "COALESCE(floor(extract(epoch FROM password_changed_at) * 1000), 0)::bigint";
+
 /** Bearer-token auth. Re-reads the user row so deactivation takes effect immediately. */
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   try {
-    const payload = jwt.verify(token, config.jwtSecret) as { sub: string };
-    const user = await one<AuthUser>(
-      `SELECT id, role, full_name, can_create_po, can_view_invoices, can_manage_agents, can_manage_announcements, can_manage_products
+    const payload = jwt.verify(token, config.jwtSecret, { algorithms: ["HS256"] }) as { sub: string; pv?: number };
+    const row = await one<AuthUser & { pv: string }>(
+      `SELECT id, role, full_name, can_create_po, can_view_invoices, can_manage_agents, can_manage_announcements, can_manage_products,
+              ${PASSWORD_VERSION_SQL} AS pv
          FROM users WHERE id = $1 AND is_active`,
       [payload.sub]
     );
-    if (!user) return res.status(401).json({ error: "Account not found or deactivated" });
+    if (!row) return res.status(401).json({ error: "Account not found or deactivated" });
+    // The token carries the password version it was issued under; changing the
+    // password moves the version on, which retires every earlier token. Tokens
+    // issued before this existed have no version and match an unchanged password.
+    if ((payload.pv ?? 0) !== Number(row.pv)) return res.status(401).json({ error: "Sign in required" });
+    const { pv: _omit, ...user } = row;
     req.user = user;
     next();
   } catch {
