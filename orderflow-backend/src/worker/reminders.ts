@@ -1,5 +1,5 @@
 import { one, q, tx } from "../db";
-import { issueUploadToken, uploadUrl } from "../lib/tokens";
+import { ewtUploadUrl, issueUploadToken, uploadUrl } from "../lib/tokens";
 import { clientEmails, renderTemplate, sendMail } from "../lib/email";
 import { peso, shortDate } from "../lib/numbering";
 import { notifyAdmins } from "../lib/notify";
@@ -13,9 +13,11 @@ import { notifyAdmins } from "../lib/notify";
  */
 
 interface Settings {
-  type: "payment" | "order";
+  type: "payment" | "order" | "ewt";
   days_before: number;
   frequency_days: number;
+  /** Only used by the "ewt" type: the most reminders sent per invoice. */
+  max_reminders?: number | null;
   send_time: string; // "HH:MM:SS"
   timezone: string;
   template: string;
@@ -40,14 +42,16 @@ export interface RunResult {
   skipped_reason?: string;
 }
 
-export const runReminders = async (type: "payment" | "order", opts: { force?: boolean } = {}): Promise<RunResult> => {
+const RUN_LABELS = { payment: "Payment", order: "Order", ewt: "BIR 2307" } as const;
+
+export const runReminders = async (type: "payment" | "order" | "ewt", opts: { force?: boolean } = {}): Promise<RunResult> => {
   const settings = await one<Settings>("SELECT * FROM reminder_settings WHERE type = $1::reminder_type", [type]);
   if (!settings || !settings.is_enabled) return { type, sent: 0, skipped_reason: "disabled" };
   if (!opts.force && !inSendWindow(settings)) return { type, sent: 0, skipped_reason: "outside send window" };
 
-  const sent = type === "payment" ? await runPaymentReminders(settings) : await runOrderReminders(settings);
-  if (sent > 0)
-    await notifyAdmins(`${type === "payment" ? "Payment" : "Order"} reminder run: ${sent} email(s) sent.`);
+  const sent =
+    type === "payment" ? await runPaymentReminders(settings) : type === "ewt" ? await runEwtReminders(settings) : await runOrderReminders(settings);
+  if (sent > 0) await notifyAdmins(`${RUN_LABELS[type]} reminder run: ${sent} email(s) sent.`);
   return { type, sent };
 };
 
@@ -231,6 +235,113 @@ const runPaymentReminders = async (s: Settings): Promise<number> => {
       sent += invoices.length;
     } catch (err: any) {
       console.error(`payment reminder failed for client ${invoices[0].client_id}:`, err.message);
+    }
+  }
+  return sent;
+};
+
+interface EwtInvoice {
+  id: string;
+  invoice_no: string;
+  /** Total tax withheld across the invoice's payments. */
+  ewt_total: string | number;
+  client_id: string;
+  contact_name: string;
+  email: string | null;
+  extra_emails?: string[];
+}
+
+/**
+ * Invoices where tax was withheld on a payment but no BIR Form 2307 is on
+ * file, and a reminder is due: the withholding was recorded at least
+ * days_before days ago, the last 2307 reminder is older than frequency_days,
+ * and fewer than max_reminders have been sent. Only fully paid invoices are
+ * asked about: one still being collected is already being chased for payment,
+ * and once it is settled the form can cover the final amount withheld. Clients
+ * with no email, and clients who collect in person (the admin collects those
+ * forms by hand), are left out.
+ */
+export const findEwtDue = (s: Pick<Settings, "days_before" | "frequency_days" | "max_reminders">) =>
+  q<EwtInvoice>(
+    `SELECT i.id, i.invoice_no, e.ewt_total,
+            c.id AS client_id, c.contact_name, c.email, c.extra_emails
+       FROM invoices i
+       JOIN clients c ON c.id = i.client_id
+       JOIN LATERAL (
+         SELECT sum(ewt_amount) AS ewt_total,
+                min(verified_at) FILTER (WHERE ewt_amount > 0) AS first_at
+           FROM invoice_payments WHERE invoice_id = i.id
+       ) e ON e.ewt_total > 0
+      WHERE i.status = 'paid'
+        AND i.ewt_name IS NULL
+        AND NOT c.collects_in_person
+        AND (c.email IS NOT NULL OR cardinality(c.extra_emails) > 0)
+        AND e.first_at <= now() - make_interval(days => $1)
+        AND NOT EXISTS (
+          SELECT 1 FROM reminder_logs rl
+           WHERE rl.invoice_id = i.id AND rl.type = 'ewt'
+             AND rl.sent_at > now() - make_interval(days => $2)
+        )
+        AND ($3::int IS NULL OR (SELECT count(*) FROM reminder_logs rl WHERE rl.invoice_id = i.id AND rl.type = 'ewt') < $3)
+      ORDER BY e.first_at`,
+    [s.days_before, s.frequency_days, s.max_reminders ?? null]
+  );
+
+/**
+ * One email per client asking for the 2307 on every invoice that lacks one,
+ * each with its own secure upload link (these links keep working after the
+ * invoice is paid). Every invoice still gets its own ledger row, so the
+ * per-invoice repeat interval and cap keep working.
+ */
+export const sendEwtReminder = async (invoices: EwtInvoice[], template: string): Promise<void> => {
+  const first = invoices[0];
+  const recipients = clientEmails(first);
+  if (!recipients.length) return;
+  await tx(async (c) => {
+    const tokens: string[] = [];
+    for (const inv of invoices) tokens.push(await issueUploadToken(inv.id, c, "ewt"));
+
+    const subject =
+      invoices.length === 1
+        ? `Please submit your BIR Form 2307 for ${first.invoice_no}`
+        : `Please submit your BIR Form 2307 — ${invoices.length} invoices`;
+    const totalEwt = invoices.reduce((sum, inv) => sum + Number(inv.ewt_total), 0);
+    const intro = renderTemplate(template, {
+      contact: first.contact_name,
+      invoice: invoices.map((inv) => inv.invoice_no).join(", "),
+      ewt: peso(totalEwt),
+    });
+    const links = invoices
+      .map((inv, i) => `  - ${inv.invoice_no} (tax withheld ${peso(inv.ewt_total)}): ${ewtUploadUrl(tokens[i])}`)
+      .join("\n");
+    const body = `${intro}\n\nUpload it here (secure link, no login needed):\n${links}`;
+
+    const logIds: string[] = [];
+    for (const inv of invoices) {
+      const logRes = await c.query(
+        `INSERT INTO reminder_logs (type, invoice_id, client_id, sent_to, subject)
+         VALUES ('ewt', $1, $2, $3, $4) RETURNING id`,
+        [inv.id, inv.client_id, recipients.join(", "), subject]
+      );
+      logIds.push(logRes.rows[0].id);
+    }
+    const mail = await sendMail(recipients, subject, body);
+    await c.query("UPDATE reminder_logs SET provider_id = $1 WHERE id = ANY($2::uuid[])", [mail.providerId, logIds]);
+  });
+};
+
+const runEwtReminders = async (s: Settings): Promise<number> => {
+  const due = await findEwtDue(s);
+  const byClient = new Map<string, EwtInvoice[]>();
+  for (const inv of due) byClient.set(inv.client_id, [...(byClient.get(inv.client_id) || []), inv]);
+
+  let sent = 0;
+  for (const invoices of byClient.values()) {
+    try {
+      await sendEwtReminder(invoices, s.template);
+      sent += invoices.length;
+    } catch (err: any) {
+      console.error(`2307 reminder failed for client ${invoices[0].client_id}:`, err.message);
     }
   }
   return sent;

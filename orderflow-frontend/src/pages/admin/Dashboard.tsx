@@ -4,9 +4,6 @@ import { Card, ErrorBox, InvoiceChip, Loading, useData } from "../../components"
 
 type FilterKey = "overdue" | "due_soon" | "receipts" | "no_email" | "manual_collection" | "missing_2307";
 
-/** EWT was actually withheld on a payment against this invoice, but no BIR Form 2307 is on file yet. */
-const missing2307 = (i: any) => Number(i.total_ewt) > 0 && !i.ewt_name;
-
 /** Mirrors the exact predicates dashboard.ts used to compute each summary count. */
 const matchesFilter = (i: any, key: FilterKey | null, dueSoonWindowDays: number): boolean => {
   switch (key) {
@@ -15,7 +12,7 @@ const matchesFilter = (i: any, key: FilterKey | null, dueSoonWindowDays: number)
     case "receipts": return i.status === "receipt_uploaded";
     case "no_email": return !i.has_email;
     case "manual_collection": return i.collects_in_person;
-    case "missing_2307": return missing2307(i);
+    case "missing_2307": return false; // paid invoices only: they come from their own list (see below)
     default: return true;
   }
 };
@@ -34,7 +31,12 @@ export default function Dashboard() {
     missing_2307: "Lacking 2307",
   };
 
-  const filteredInvoices = data ? data.invoices.filter((i: any) => matchesFilter(i, filter, data.summary.due_soon_window_days)) : [];
+  // "Lacking 2307" lists fully paid invoices still waiting on their form. They aren't open invoices, so they come from their own set.
+  const filteredInvoices = data
+    ? filter === "missing_2307"
+      ? data.paid_missing_2307 || []
+      : data.invoices.filter((i: any) => matchesFilter(i, filter, data.summary.due_soon_window_days))
+    : [];
   const statClass = (key: FilterKey | null) => `stat clickable${filter === key ? " active" : ""}`;
 
   return (
@@ -68,7 +70,7 @@ export default function Dashboard() {
             </div>
           </div>
           <Card
-            title={filter ? `Open invoices — ${FILTER_LABELS[filter]}` : "Open invoices"}
+            title={filter === "missing_2307" ? "Paid invoices lacking a 2307" : filter ? `Open invoices — ${FILTER_LABELS[filter]}` : "Open invoices"}
             hint={filter ? `${filteredInvoices.length} shown — click the box again, or "Outstanding total," to clear` : "soonest due first"}
             pad={false}
           >
@@ -84,16 +86,18 @@ export default function Dashboard() {
                       {i.company_name}
                       {!i.has_email && <span className="chip amber" style={{ marginLeft: 8 }}>No email</span>}
                       {i.collects_in_person && <span className="chip amber" style={{ marginLeft: 8 }}>Check/in-person</span>}
-                      {missing2307(i) && <span className="chip orange" style={{ marginLeft: 8 }}>No 2307</span>}
+                      {filter === "missing_2307" && <span className="chip orange" style={{ marginLeft: 8 }}>No 2307</span>}
                       <div className="dim">{i.contact_name}</div>
                     </td>
                     <td className="num right">{peso(i.balance_due)}</td>
                     <td className="num">
                       {fmtDate(i.due_date)}
                       <div className="dim" style={i.is_overdue ? { color: "var(--red)" } : undefined}>
-                        {i.is_overdue
-                          ? `${-i.days_until_due} days overdue`
-                          : i.days_until_due === 0 ? "due today" : `in ${i.days_until_due} days`}
+                        {i.status === "paid"
+                          ? (i.paid_at ? `paid ${fmtDate(i.paid_at)}` : "paid")
+                          : i.is_overdue
+                            ? `${-i.days_until_due} days overdue`
+                            : i.days_until_due === 0 ? "due today" : `in ${i.days_until_due} days`}
                       </div>
                     </td>
                     <td><InvoiceChip inv={i} /></td>
