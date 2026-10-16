@@ -26,7 +26,8 @@ body{min-height:100vh;background:var(--paper);color:var(--ink);font-family:var(-
 .whoami{margin-left:auto;display:flex;align-items:center;gap:12px;white-space:nowrap}
 .whoami .name{font-family:var(--mono);font-size:12px;color:var(--ink2)}
 .whoami .rolechip{font-family:var(--cond);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--brand-green);background:var(--green-bg);color:var(--green);padding:2px 8px}
-.loginbrand{margin-bottom:22px}
+.loginbrand{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:22px}
+.loginbrand .brand{justify-content:center}
 .loginbrand .brandtext{border-left:none;padding-left:0}
 .uploadbrand{margin-bottom:16px}
 
