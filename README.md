@@ -4,5 +4,7 @@
 
 Order, invoice, and payment-reminder management for AJCB Enterprises Inc.
 
+Proprietary software. Copyright (c) 2026 AJCB Enterprises Inc. All rights reserved. See [LICENSE](LICENSE).
+
 - `orderflow-backend` — Node/Express API
 - `orderflow-frontend` — React admin/agent app
