@@ -143,6 +143,10 @@ export function useData<T>(load: () => Promise<T>, deps: unknown[] = []) {
 
 export const Loading = () => <div className="empty">Loading…</div>;
 
+export const Logo = ({ height = 34 }: { height?: number }) => (
+  <img className="brandlogo" src="/logo.png" alt="AJCB Enterprises Inc." style={{ height, width: "auto" }} />
+);
+
 /* ---- search: a box plus a case-insensitive "does any field contain the query" test ---- */
 export const matchesSearch = (query: string, ...fields: (string | number | null | undefined)[]) => {
   const q = query.trim().toLowerCase();

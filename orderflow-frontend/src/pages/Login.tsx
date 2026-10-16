@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, setSession } from "../api";
+import { Logo } from "../components";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -26,9 +27,14 @@ export default function Login() {
 
   return (
     <div className="loginwrap">
-      <div className="brand" style={{ color: "var(--ink)", marginBottom: 24 }}>
-        OrderFlow
-        <small style={{ color: "var(--muted)" }}>orders · invoices · reminders</small>
+      <div className="loginbrand">
+        <Logo height={64} />
+        <div className="brand" style={{ marginTop: 14 }}>
+          <span className="brandtext">
+            OrderFlow
+            <small>orders · invoices · reminders</small>
+          </span>
+        </div>
       </div>
       <div className="card">
         <div className="card-b">

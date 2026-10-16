@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
-import { Card, ErrorBox, Loading, useData } from "../components";
+import { Card, ErrorBox, Loading, Logo, useData } from "../components";
 
 /**
  * Public, standalone BIR Form 2307 (EWT) upload page, reached from a link
@@ -49,6 +49,7 @@ export default function EwtUpload() {
 
   return (
     <div className="centerwrap">
+      <div className="uploadbrand"><Logo height={48} /></div>
       <Card title="BIR Form 2307 upload" hint="secure link · no login required">
         <table className="ledger" style={{ margin: "6px 0 14px" }}>
           <tbody>

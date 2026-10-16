@@ -1,6 +1,6 @@
 import { Link, NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { api, clearSession, getToken, getUser } from "./api";
-import { useData } from "./components";
+import { Logo, useData } from "./components";
 
 const NavItem = ({ to, label, badge }: { to: string; label: string; badge?: number }) => (
   <NavLink to={to} className={({ isActive }) => "navbtn" + (isActive ? " on" : "")}>
@@ -26,13 +26,16 @@ export default function Shell() {
     <>
       <div className="topbar">
         <Link to="/" className="brand">
-          OrderFlow
-          <small>orders · invoices · reminders</small>
+          <Logo height={34} />
+          <span className="brandtext">
+            OrderFlow
+            <small>orders · invoices · reminders</small>
+          </span>
         </Link>
         <div className="whoami">
           <span className="rolechip">{user.role}</span>
           <Link to="/account" className="name" style={{ textDecoration: "underline" }}>{user.full_name}</Link>
-          <button className="btn sm ghost" style={{ borderColor: "#4A4F5C", color: "#C9CCD5" }} onClick={logout}>
+          <button className="btn sm ghost" onClick={logout}>
             Sign out
           </button>
         </div>

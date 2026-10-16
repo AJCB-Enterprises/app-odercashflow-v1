@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, fmtDate, peso } from "../api";
-import { Card, ErrorBox, Loading, useData } from "../components";
+import { Card, ErrorBox, Loading, Logo, useData } from "../components";
 
 /**
  * Public payment-receipt upload page, reached from the emailed secure link
@@ -54,6 +54,7 @@ export default function Upload() {
 
   return (
     <div className="centerwrap">
+      <div className="uploadbrand"><Logo height={48} /></div>
       <Card title="Payment receipt upload" hint="secure link · no login required">
         <table className="ledger" style={{ margin: "6px 0 14px" }}>
           <tbody>
